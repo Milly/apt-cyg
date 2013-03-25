@@ -188,8 +188,10 @@ function install_package_noscripts()
     local package
     for package in $requires
     do
-      if [ ! `echo ${ignore_recursive_packages} | grep "%${package}%"` ]
-      then 
+      if [ `echo ${ignore_recursive_packages} | grep "%${package}%"` ]
+      then
+        echo Package $pkg is recursive, skipping
+      else
         install_package_noscripts $package
       fi
       if ! test $? = 0 ; then warn=1; fi
