@@ -41,6 +41,7 @@ function usage()
   echo "  \"apt-cyg find <patterns>\" to find packages matching patterns"
   echo "  \"apt-cyg search <patterns>\" to find packages matching patterns (alias of find)"
   echo "  \"apt-cyg describe <patterns>\" to describe packages matching patterns"
+  echo "  \"apt-cyg info <patterns>\" to describe packages matching patterns (alias of describe)"
   echo "  \"apt-cyg packageof <commands or files>\" to locate parent packages"
   echo "Options:"
   echo "  --mirror, -m <url> : set mirror"
@@ -340,7 +341,7 @@ function process_args () {
        shift
      ;;
 
-      update|show|search|find|describe|packageof|install|reinstall|remove)
+      update|show|search|find|describe|info|packageof|install|reinstall|remove)
         if test "-$command-" = "--"
         then
           command=$1
@@ -429,7 +430,7 @@ case "$command" in
   ;;
 
 
-  describe)
+  describe|info)
 
     checkpackages
     findworkspace
