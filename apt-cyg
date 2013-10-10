@@ -112,8 +112,7 @@ function getsetup()
   local mirror="$mirror/$(get_arch)"
   if test "$noscripts" == "0" -a "$noupdate" == "0"
   then
-    touch setup.ini
-    mv setup.ini setup.ini-save
+    test -e setup.ini && mv setup.ini setup.ini-save
     wget -N $mirror/setup.bz2
     if test -e setup.bz2 && test $? -eq 0
     then
@@ -125,11 +124,19 @@ function getsetup()
       if test -e setup.ini && test $? -eq 0
       then
         echo Updated setup.ini
-      else
+      elif test -e setup.ini-save
+      then
         mv setup.ini-save setup.ini
         echo Error updating setup.ini, reverting
+      else
+        echo Error updating setup.ini
+        exit 1
       fi
     fi
+  elif test ! -e setup.ini
+  then
+    echo -e '\nYou should run `apt-cyg update` first'
+    exit 1
   fi
 }
 
