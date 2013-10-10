@@ -36,6 +36,7 @@ function usage()
   echo "  apt-cyg install <package names>       : install packages"
   echo "  apt-cyg reinstall <package names>     : re-install packages"
   echo "  apt-cyg remove <package names>        : remove packages"
+  echo "  apt-cyg mirrors                       : show mirrors"
   echo "  apt-cyg update                        : update setup.ini"
   echo "  apt-cyg show                          : show installed packages"
   echo "  apt-cyg find <patterns>               : find packages matching patterns"
@@ -77,6 +78,21 @@ function get_arch()
     ;;
   esac
   echo "$arch"
+}
+
+function get_mirrors()
+{
+  wget -qO - 'http://cygwin.com/mirrors.html' | awk \
+    -e 'BEGIN { RS="<a ";FS="href=\"|\"[> ]"; inlist=0; lc=0 }' \
+    -e '/name="sitelist"/ { inlist=1 }' \
+    -e 'inlist && $2 ~ /^(https?|ftp):/ { print $2; lc++ }' \
+    -e 'inlist && /<hr>/ { exit }' \
+    -e 'END { if (!lc) exit 1 }'
+  if test $? -ne 0
+  then
+    echo 1>&2 Cannot get mirrors
+    exit 1
+  fi
 }
 
 function findworkspace()
@@ -341,7 +357,7 @@ function process_args () {
        shift
      ;;
 
-      update|show|search|find|describe|info|packageof|install|reinstall|remove)
+      mirrors|update|show|search|find|describe|info|packageof|install|reinstall|remove)
         if test "-$command-" = "--"
         then
           command=$1
@@ -387,6 +403,13 @@ fi
 
 
 case "$command" in
+
+  mirrors)
+
+    get_mirrors
+
+  ;;
+
 
   update)
 
