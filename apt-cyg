@@ -352,10 +352,10 @@ function process_args () {
         shift
       ;;
 
-     --no-ignore-case|-no-i)
-       nocase=0
-       shift
-     ;;
+      --no-ignore-case|-no-i)
+        nocase=0
+        shift
+      ;;
 
       mirrors|update|show|search|find|describe|info|packageof|install|reinstall|remove)
         if test "-$command-" = "--"
@@ -438,16 +438,12 @@ case "$command" in
     do
       echo ""
       echo Searching for installed packages matching $pkg:
-      awk -v nocase="$nocase" '/[^ ]+ [^ ]+ 0/ { if (nocase == 1 ) { IGNORECASE=1 } if ($1 ~ query) { print $1 } }' query="$pkg" /etc/setup/installed.db
+      cat /etc/setup/installed.db | awk -v IGNORECASE=${nocase#0} -v query="$pkg" \
+        '/[^ ]+ [^ ]+ 0/ && ($1 ~ query) {print $1}'
       echo ""
       echo Searching for installable packages matching $pkg:
-      if [[ "$nocase" -eq "1" ]] ; then
-      cat setup.ini | awk -v query="$pkg" \
-          'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} {IGNORECASE=1; if ($1 ~ query) {print $1}}'
-      else
-        cat setup.ini | awk -v query="$pkg" \
-        'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} {if ($1 ~ query) {print $1}}'
-      fi
+      cat setup.ini | awk -v IGNORECASE=${nocase#0} -v query="$pkg" \
+        'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} ($1 ~ query) {print $1}'
     done
 
   ;;
@@ -461,8 +457,8 @@ case "$command" in
     for pkg in $packages
     do
       echo ""
-      cat setup.ini | awk -v nocase="$nocase" -v query="$pkg" \
-        'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} {if (nocase == 1 ) { IGNORECASE=1 } if ($1 ~ query) {print $0 "\n"}}'
+      cat setup.ini | awk -v IGNORECASE=${nocase#0} -v query="$pkg" \
+        'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} ($1 ~ query) {print $0 "\n"}'
     done
 
   ;;
@@ -480,8 +476,8 @@ case "$command" in
       fi
       for manifest in /etc/setup/*.lst.gz
       do
-        found=`cat $manifest | gzip -d | grep -c "$key"`
-        if test $found -gt 0
+        ignorecase=${nocase#0}
+        if cat $manifest | gzip -d | grep -q ${ignorecase:+-i} -e "$key"
         then
           package=`echo $manifest | sed -e "s:/etc/setup/::" -e "s/.lst.gz//"`
           echo Found $key in the package $package
