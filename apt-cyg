@@ -443,7 +443,7 @@ case "$command" in
       echo ""
       echo Searching for installable packages matching $pkg:
       cat setup.ini | awk -v IGNORECASE=${nocase#0} -v query="$pkg" \
-        'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} ($1 ~ query) {print $1}'
+        'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} /^[^#]/ && ($1 ~ query) {print $1}'
     done
 
   ;;
@@ -458,7 +458,7 @@ case "$command" in
     do
       echo ""
       cat setup.ini | awk -v IGNORECASE=${nocase#0} -v query="$pkg" \
-        'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} ($1 ~ query) {print $0 "\n"}'
+        'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} /^[^#]/ && ($1 ~ query) {print $0 "\n"}'
     done
 
   ;;
