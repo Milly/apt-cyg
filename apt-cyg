@@ -51,6 +51,7 @@ function usage()
   echo "  --update, -u       : force update setup.ini from mirror"
   echo "  --noupdate         : don't update setup.ini from mirror (default)"
   echo "  --ignore-case, -i  : ignore case distinctions in <patterns> when finding packages"
+  echo "  --match-desc, -m   : <patterns> match the package description"
   echo "  --help"
   echo "  --version"
 }
@@ -160,7 +161,7 @@ function getsetup()
 
 function checkpackages()
 {
-  if test "-$packages-" = "--"
+  if [[ ${#packages} -eq 0 ]]
   then
     echo Nothing to do, exiting
     exit 0
@@ -282,18 +283,33 @@ function install_package_noscripts()
   echo Package $pkg installed
 }
 
+get_installed_packages()
+{
+  awk '/[^ ]+ [^ ]+ 0/ {print $1}' /etc/setup/installed.db
+}
+
+get_avail_packages()
+{
+  local query search='$1' output='$1' separator=$'\n'
+  IFS=$'\n' query="$*"; query="(${query//$'\n'/$')|('})"
+  [[ $match_desc -ne 0 ]] && search='$0' # search by description
+  [[ $show_desc  -ne 0 ]] && output='$0' separator=$'\n\n' # show description
+  cat setup.ini | awk -v IGNORECASE=${nocase#0} -v ORS="$separator" -v query="$query" \
+    -e 'BEGIN {RS="\n\n@ "; FS="\n"}' \
+    -e '/^[^#]/ && ('$search' ~ query) {print '$output'}'
+}
 
 # process options
 
 noscripts=0
 noupdate=1
-file=""
-dofile=0
+files=()
 nocase=0
+match_desc=0
 command=""
-filepackages=""
-packages=""
+packages=()
 ignore_recursive_packages=""
+
 
 function process_args () {
   while test $# -gt 0
@@ -338,8 +354,7 @@ function process_args () {
       --file|-f)
         if ! test "-$2-" = "--"
         then
-          file="$2"
-          dofile=1
+          files=( "${files[@]}" "$2" )
           shift
         else
           echo 1>&2 No file name provided, ignoring $1
@@ -357,19 +372,24 @@ function process_args () {
         shift
       ;;
 
+      --match-desc|-d)
+        match_desc=1
+        shift
+      ;;
+
       mirrors|update|show|search|find|describe|info|packageof|install|reinstall|remove)
         if test "-$command-" = "--"
         then
           command=$1
         else
-          packages="$packages $1"
+          packages=( "${packages[@]}" "$1" )
         fi
         shift
 
       ;;
 
       *)
-        packages="$packages $1"
+        packages=( "${packages[@]}" "$1" )
         shift
 
       ;;
@@ -390,15 +410,17 @@ fi
 
 process_args "$@"
 
-if test $dofile = 1
+if [[ ${#files} -ne 0 ]]
 then
-  if test -f "$file"
-  then
-    filepackages="$filepackages `cat "$file" | awk '{printf "%s ", $0}'`"
-  else
-    echo File $file not found, skipping
-  fi
-  packages="$packages $filepackages"
+  for file in "${files[@]}"
+  do
+    if [[ "$file" == - ||  -f "$file" ]]
+    then
+      packages=( "${packages[@]}" $(cat -- "$file") )
+    else
+      echo 1>&2 File $file not found, skipping
+    fi
+  done
 fi
 
 
@@ -423,7 +445,7 @@ case "$command" in
   show)
 
     echo 1>&2 The following packages are installed:
-    cat /etc/setup/installed.db | awk '/[^ ]+ [^ ]+ 0/ {print $1}'
+    get_installed_packages
 
   ;;
 
@@ -433,18 +455,11 @@ case "$command" in
     checkpackages
     findworkspace
     getsetup
-
-    for pkg in $packages
-    do
-      echo ""
-      echo Searching for installed packages matching $pkg:
-      cat /etc/setup/installed.db | awk -v IGNORECASE=${nocase#0} -v query="$pkg" \
-        '/[^ ]+ [^ ]+ 0/ && ($1 ~ query) {print $1}'
-      echo ""
-      echo Searching for installable packages matching $pkg:
-      cat setup.ini | awk -v IGNORECASE=${nocase#0} -v query="$pkg" \
-        'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} /^[^#]/ && ($1 ~ query) {print $1}'
-    done
+    echo ""
+    echo "Searching packages (i:installed p:purged):"
+    get_avail_packages "${packages[@]}" | \
+      awk -v installed="$(get_installed_packages)" \
+      'BEGIN{gsub("\n", "|", installed)} {s=($1~installed)?"i":"p"; print s "  ", $1}'
 
   ;;
 
@@ -454,12 +469,8 @@ case "$command" in
     checkpackages
     findworkspace
     getsetup
-    for pkg in $packages
-    do
-      echo ""
-      cat setup.ini | awk -v IGNORECASE=${nocase#0} -v query="$pkg" \
-        'BEGIN{RS="\n\n@ "; FS="\n"; ORS="\n"} /^[^#]/ && ($1 ~ query) {print $0 "\n"}'
-    done
+    echo ""
+    show_desc=1 get_avail_packages "${packages[@]}"
 
   ;;
 
@@ -467,7 +478,7 @@ case "$command" in
   packageof)
 
     checkpackages
-    for pkg in $packages
+    for pkg in "${packages[@]}"
     do
       key=`which "$pkg" 2>/dev/null | sed "s:^/::"`
       if test "-$key-" = "--"
@@ -494,7 +505,7 @@ case "$command" in
     findworkspace
     getsetup
 
-    for pkg in $packages
+    for pkg in "${packages[@]}"
     do
       install_package_noscripts $pkg
 
@@ -519,7 +530,7 @@ case "$command" in
   remove)
 
     checkpackages
-    for pkg in $packages
+    for pkg in "${packages[@]}"
     do
 
     already=`grep -c "^$pkg " /etc/setup/installed.db`
