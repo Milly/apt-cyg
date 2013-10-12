@@ -1,0 +1,114 @@
+#compdef apt-cyg
+
+local curcontext="$curcontext" state line cmds ret=1
+
+function _cygwin_mirrors() {
+  local mirrors expl
+  mirrors=( ${(f)"$(LC_ALL=C _call_program commands apt-cyg mirrors 2>/dev/null)"} )
+  _wanted urls expl 'URL of cygwin mirror' compadd ${mirrors}
+}
+
+function _cygwin_packages() {
+  local pkgset="$argv[$#]" expl cachevar update_policy
+
+  zstyle -s ":completion:*:*:$service:*" cache-policy update_policy
+  if [[ -z "$update_policy" ]]; then
+    zstyle ":completion:*:*:$service:*" cache-policy _cygwin_packages_caching_policy
+  fi
+
+  expl=("${(@)argv[1,-2]}")
+  _cygwin_packages_update_$pkgset
+  typeset -gH $cachevar
+  _tags packages && compadd "$expl[@]" - "${(@P)cachevar}"
+}
+
+_cygwin_packages_update_avail () {
+  if ( [[ ${+_cygwin_packages_cache_avail} -eq 0 ]] ||
+       _cache_invalid CYGPACK_avail ) &&
+       ! _retrieve_cache CYGPACK_avail
+  then
+    typeset -U _cygwin_packages_cache_avail
+    _cygwin_packages_cache_avail=(
+      ${${(M)${(f)"$(LC_ALL=C _call_program commands apt-cyg find . 2>/dev/null)"}:#[ip] *}#[ip] #}
+    )
+    _store_cache CYGPACK_avail _cygwin_packages_cache_avail
+  fi
+  cachevar=_cygwin_packages_cache_avail
+}
+
+_cygwin_packages_update_installed () {
+  if ( [[ ${+_cygwin_packages_cache_installed} -eq 0 ]] ||
+       _cache_invalid CYGPACK_installed ) &&
+       ! _retrieve_cache CYGPACK_installed
+  then
+    _cygwin_packages_cache_installed=(
+      ${(f)"$(LC_ALL=C _call_program commands apt-cyg show 2>/dev/null)"}
+    )
+    _store_cache CYGPACK_installed _cygwin_packages_cache_installed
+  fi
+  cachevar=_cygwin_packages_cache_installed
+}
+
+_cygwin_packages_update_uninstalled () {
+  _cygwin_packages_update_avail
+  _cygwin_packages_update_installed
+  if (( ! $+_cygwin_packages_cache_uninstalled )); then
+    # Package lists too large to efficiently diff with zsh expansion
+    _cygwin_packages_cache_uninstalled=(
+      $( print -l $_cygwin_packages_cache_avail |
+         fgrep -xvf =(print -l $_cygwin_packages_cache_installed) )
+    )
+  fi
+  cachevar=_cygwin_packages_cache_uninstalled
+}
+
+_cygwin_packages_caching_policy () {
+  [[ "$1" -ot /etc/setup/installed.db ]]
+}
+
+_arguments -C \
+  '(- 1 *)--help[display help information]' \
+  '(- 1 *)--version[display version information]' \
+  '(-m --mirror)'{-m,--mirror}'[set mirror]:mirror url:_cygwin_mirrors' \
+  '(-c --cache)'{-c,--cache}'[set cache]:cache dir:_dirs' \
+  '(-f --file)'{-f,--file}'[read package names from file]' \
+  '(-u --update --noupdate)'{-u,--update}'[force update setup.ini from mirror]' \
+  "(-u --update)--noupdate[don't update setup.ini from mirror (default)]" \
+  '(-i --ignore-case)'{-i,--ignore-case}'[ignore case distinctions in <patterns> when finding packages]' \
+  '(-d --match-desc)'{-d,--match-desc}'[<patterns> match the package description]' \
+  '1: :->cmds' \
+  '*: :->args' && ret=0
+
+case $state in
+  cmds)
+    cmds=( ${${(M)${(f)"$(LC_ALL=C _call_program commands apt-cyg --help 2>/dev/null)"}:# *apt-cyg [a-z]* : *}/(#b)*apt-cyg ([^ ]#) * : (*)/$match[1]:$match[2]:l} )
+    _describe -t commands 'apt-cyg command' cmds && ret=0
+  ;;
+  args)
+    case $line[1]; in
+      install)
+        _cygwin_packages uninstalled && ret=0
+      ;;
+      reinstall)
+        _cygwin_packages avail && ret=0
+      ;;
+      remove)
+        _cygwin_packages installed && ret=0
+      ;;
+      find|search|describe|info)
+        _message -e patterns pattern
+      ;;
+      packageof)
+        _alternative \
+          'commands:command: _command_names -e' \
+          'files:file:_files' \
+          && ret=0
+      ;;
+      *)
+        (( ret )) && _message 'no more arguments'
+      ;;
+    esac
+  ;;
+esac
+
+return ret

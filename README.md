@@ -30,3 +30,10 @@ use apt-cyg, for example:
 
     # apt-cyg update
     # apt-cyg install nano
+
+Command completion
+------------------
+apt-cyg has command completion in zsh.
+
+    # curl -o /usr/share/zsh/site-functions/_apt-cyg https://raw.github.com/milly/apt-cyg/master/zsh_completion/_apt-cyg
+    # autoload -Uz compinit && compinit -u
