@@ -299,6 +299,24 @@ get_avail_packages()
     -e '/^[^#]/ && ('$search' ~ query) {print '$output'}'
 }
 
+find_package_files()
+{
+  local pkg query
+  for pkg in "$@"
+  do
+    query="${query}|($(which "$pkg" 2>/dev/null || echo "$pkg"))"
+  done
+  query="${query#|}"
+  (
+    cd /etc/setup
+    for manifest in *.lst.gz
+    do
+      gzip -dc "$manifest" | awk -v IGNORECASE=${nocase#0} -v query="$query" -v package="${manifest%.lst.gz}" \
+        'BEGIN{RS="\n"} ("/"$0 ~ query){printf("%s: %s\n", package, "/"$0)}'
+    done
+  )
+}
+
 # process options
 
 noscripts=0
@@ -478,23 +496,7 @@ case "$command" in
   packageof)
 
     checkpackages
-    for pkg in "${packages[@]}"
-    do
-      key=`which "$pkg" 2>/dev/null | sed "s:^/::"`
-      if test "-$key-" = "--"
-      then
-        key="$pkg"
-      fi
-      for manifest in /etc/setup/*.lst.gz
-      do
-        ignorecase=${nocase#0}
-        if cat $manifest | gzip -d | grep -q ${ignorecase:+-i} -e "$key"
-        then
-          package=`echo $manifest | sed -e "s:/etc/setup/::" -e "s/.lst.gz//"`
-          echo Found $key in the package $package
-        fi
-      done
-    done
+    find_package_files "${packages[@]}"
 
   ;;
 
