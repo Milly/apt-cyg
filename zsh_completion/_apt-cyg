@@ -29,7 +29,7 @@ _cygwin_packages_update_avail () {
   then
     typeset -U _cygwin_packages_cache_avail
     _cygwin_packages_cache_avail=(
-      ${${(M)${(f)"$(LC_ALL=C _call_program commands apt-cyg find . 2>/dev/null)"}:#[ip] *}#[ip] #}
+      ${${(@M)${(@f)"$(LC_ALL=C _call_program commands apt-cyg find . 2>/dev/null)"}:#[ip] *}##[ip] #}
     )
     _store_cache CYGPACK_avail _cygwin_packages_cache_avail
   fi
