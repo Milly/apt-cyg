@@ -496,7 +496,8 @@ function command_find()
   echo "Searching packages (i:installed p:purged):"
   get_avail_packages "${packages[@]}" | \
     awk -v installed="$(get_installed_packages)" \
-    'BEGIN{gsub("\n", "|", installed)} {s=($1~installed)?"i":"p"; print s "  ", $1}'
+    'BEGIN{ gsub("\n", "|", installed); installed="^(" installed ")$" } \
+     { s=($1~installed)?"i":"p"; print s "  ", $1 }'
 }
 function command_search()
 {
