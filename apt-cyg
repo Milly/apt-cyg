@@ -17,17 +17,14 @@
 # (http://www.fsf.org/licensing/licenses/gpl.html)
 
 # this script requires some packages
-
-WGET=`which wget 2> /dev/null`
-BZIP2=`which bzip2 2> /dev/null`
-TAR=`which tar 2> /dev/null`
-GAWK=`which awk 2> /dev/null`
-if test "-$WGET-" = "--" || test "-$BZIP2-" = "--" || test "-$TAR-" = "--" \
-  || test "-$GAWK-" = "--"
-then
-  echo You must install wget, tar, gawk and bzip2 to use apt-cyg.
-  exit 1
-fi
+for cmd in wget bzip2 tar awk
+do
+  if ! which wget 1>/dev/null 2>/dev/null
+  then
+    echo You must install wget, tar, gawk and bzip2 to use apt-cyg.
+    exit 1
+  fi
+done
 
 
 function usage()
@@ -56,8 +53,6 @@ function usage()
   echo "  --version"
 }
 
-
-
 function version()
 {
   echo "apt-cyg version 0.57"
@@ -65,7 +60,6 @@ function version()
   echo ""
   echo "Copyright (c) 2005-9 Stephen Jungels.  Released under the GPL."
 }
-
 
 function get_arch()
 {
@@ -124,7 +118,6 @@ function findworkspace()
   cd "$cache/$mirrordir"
 }
 
-
 function getsetup()
 {
   local mirror="$mirror/$(get_arch)"
@@ -158,7 +151,6 @@ function getsetup()
   fi
 }
 
-
 function checkpackages()
 {
   if [[ ${#packages} -eq 0 ]]
@@ -167,7 +159,6 @@ function checkpackages()
     exit 0
   fi
 }
-
 
 function install_package_noscripts()
 {
@@ -283,12 +274,72 @@ function install_package_noscripts()
   echo Package $pkg installed
 }
 
-get_installed_packages()
+function run_postinstall_scripts()
+{
+  local pis script
+  pis=`ls /etc/postinstall/*.sh 2>/dev/null | wc -l`
+  if test $pis -gt 0 && ! test $noscripts -eq 1
+  then
+    echo Running postinstall scripts
+    for script in /etc/postinstall/*.sh
+    do
+      $script
+      mv $script $script.done
+    done
+  fi
+}
+
+function remove_package()
+{
+  local pkg=$1
+
+  local already=`grep -c "^$pkg " /etc/setup/installed.db`
+  if test $already = 0
+  then
+    echo Package $pkg is not installed, skipping
+    continue
+  fi
+
+  local dontremove="cygwin coreutils gawk bzip2 tar wget bash"
+  for req in $dontremove
+  do
+    if test "-$pkg-" = "-$req-"
+    then
+      echo apt-cyg cannot remove package $pkg, exiting
+      exit 1
+    fi
+  done
+
+  if ! test -e "/etc/setup/$pkg.lst.gz"
+  then
+    echo Package manifest missing, cannot remove $pkg.  Exiting
+    exit 1
+  fi
+  echo Removing $pkg
+
+  # run preremove scripts
+
+  if test -e "/etc/preremove/$pkg.sh"
+  then
+    "/etc/preremove/$pkg.sh"
+    rm "/etc/preremove/$pkg.sh"
+  fi
+
+  cat "/etc/setup/$pkg.lst.gz" | gzip -d | awk '/[^\/]$/ {print "rm -f \"/" $0 "\""}' | sh
+  rm "/etc/setup/$pkg.lst.gz"
+  rm -f /etc/postinstall/$pkg.sh.done
+  cat /etc/setup/installed.db | awk > /tmp/awk.$$ -v pkg="$pkg" '{if (pkg != $1) print $0}'
+  mv /etc/setup/installed.db /etc/setup/installed.db-save
+  mv /tmp/awk.$$ /etc/setup/installed.db
+  echo Package $pkg removed
+}
+
+function get_installed_packages()
 {
   awk '/[^ ]+ [^ ]+ 0/ {print $1}' /etc/setup/installed.db
 }
 
-get_avail_packages()
+function get_avail_packages()
 {
   local query search='$1' output='$1' separator=$'\n'
   IFS=$'\n' query="$*"; query="(${query//$'\n'/$')|('})"
@@ -299,7 +350,7 @@ get_avail_packages()
     -e '/^[^#]/ && ('$search' ~ query) {print '$output'}'
 }
 
-find_package_files()
+function find_package_files()
 {
   local pkg query
   for pkg in "$@"
@@ -328,8 +379,8 @@ command=""
 packages=()
 ignore_recursive_packages=""
 
-
-function process_args () {
+function process_args ()
+{
   while test $# -gt 0
   do
     case "$1" in
@@ -416,6 +467,94 @@ function process_args () {
   done
 }
 
+# command methods
+
+function command_mirrors()
+{
+  get_mirrors
+}
+
+function command_update()
+{
+  noupdate=0
+  findworkspace
+  getsetup
+}
+
+function command_show()
+{
+  echo 1>&2 The following packages are installed:
+  get_installed_packages
+}
+
+function command_find()
+{
+  checkpackages
+  findworkspace
+  getsetup
+  echo ""
+  echo "Searching packages (i:installed p:purged):"
+  get_avail_packages "${packages[@]}" | \
+    awk -v installed="$(get_installed_packages)" \
+    'BEGIN{gsub("\n", "|", installed)} {s=($1~installed)?"i":"p"; print s "  ", $1}'
+}
+function command_search()
+{
+  command_find
+}
+
+function command_describe()
+{
+  checkpackages
+  findworkspace
+  getsetup
+  echo ""
+  show_desc=1 get_avail_packages "${packages[@]}"
+}
+function command_info()
+{
+  command_describe
+}
+
+function command_packageof()
+{
+  checkpackages
+  find_package_files "${packages[@]}"
+}
+
+function command_install()
+{
+  local pkg
+  checkpackages
+  findworkspace
+  getsetup
+  for pkg in "${packages[@]}"
+  do
+    install_package_noscripts $pkg
+    run_postinstall_scripts
+  done
+}
+function command_reinstall()
+{
+  command_install
+}
+
+function command_remove()
+{
+  local pkg
+  checkpackages
+  for pkg in "${packages[@]}";
+  do
+    remove_package $pkg
+  done
+}
+
+function command_help()
+{
+  usage
+}
+
+
 # Check to see if global options are defined
 if [[ ! -z "$APTCYG_OPTIONS" ]] ; then
   # If we only have one element, assume it's a string to split
@@ -441,149 +580,4 @@ then
   done
 fi
 
-
-case "$command" in
-
-  mirrors)
-
-    get_mirrors
-
-  ;;
-
-
-  update)
-
-    noupdate=0
-    findworkspace
-    getsetup
-
-  ;;
-
-
-  show)
-
-    echo 1>&2 The following packages are installed:
-    get_installed_packages
-
-  ;;
-
-
-  find|search)
-
-    checkpackages
-    findworkspace
-    getsetup
-    echo ""
-    echo "Searching packages (i:installed p:purged):"
-    get_avail_packages "${packages[@]}" | \
-      awk -v installed="$(get_installed_packages)" \
-      'BEGIN{gsub("\n", "|", installed)} {s=($1~installed)?"i":"p"; print s "  ", $1}'
-
-  ;;
-
-
-  describe|info)
-
-    checkpackages
-    findworkspace
-    getsetup
-    echo ""
-    show_desc=1 get_avail_packages "${packages[@]}"
-
-  ;;
-
-
-  packageof)
-
-    checkpackages
-    find_package_files "${packages[@]}"
-
-  ;;
-
-
-  install|reinstall)
-
-    checkpackages
-    findworkspace
-    getsetup
-
-    for pkg in "${packages[@]}"
-    do
-      install_package_noscripts $pkg
-
-      # run all postinstall scripts
-
-      pis=`ls /etc/postinstall/*.sh 2>/dev/null | wc -l`
-      if test $pis -gt 0 && ! test $noscripts -eq 1
-      then
-        echo Running postinstall scripts
-        for script in /etc/postinstall/*.sh
-        do
-          $script
-          mv $script $script.done
-        done
-      fi
-
-    done
-
-  ;;
-
-
-  remove)
-
-    checkpackages
-    for pkg in "${packages[@]}"
-    do
-
-    already=`grep -c "^$pkg " /etc/setup/installed.db`
-    if test $already = 0
-    then
-      echo Package $pkg is not installed, skipping
-      continue
-    fi
-
-    dontremove="cygwin coreutils gawk bzip2 tar wget bash"
-    for req in $dontremove
-    do
-      if test "-$pkg-" = "-$req-"
-      then
-        echo apt-cyg cannot remove package $pkg, exiting
-        exit 1
-      fi
-    done
-
-    if ! test -e "/etc/setup/$pkg.lst.gz"
-    then
-      echo Package manifest missing, cannot remove $pkg.  Exiting
-      exit 1
-    fi
-    echo Removing $pkg
-
-    # run preremove scripts
-
-    if test -e "/etc/preremove/$pkg.sh"
-    then
-      "/etc/preremove/$pkg.sh"
-      rm "/etc/preremove/$pkg.sh"
-    fi
-
-    cat "/etc/setup/$pkg.lst.gz" | gzip -d | awk '/[^\/]$/ {print "rm -f \"/" $0 "\""}' | sh
-    rm "/etc/setup/$pkg.lst.gz"
-    rm -f /etc/postinstall/$pkg.sh.done
-    cat /etc/setup/installed.db | awk > /tmp/awk.$$ -v pkg="$pkg" '{if (pkg != $1) print $0}'
-    mv /etc/setup/installed.db /etc/setup/installed.db-save
-    mv /tmp/awk.$$ /etc/setup/installed.db
-    echo Package $pkg removed
-
-    done
-
-  ;;
-
-  *)
-
-    usage
-
-  ;;
-
-esac
-
+command_${command:-help}
