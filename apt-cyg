@@ -447,7 +447,7 @@ function process_args ()
         shift
       ;;
 
-      mirrors|update|show|search|find|describe|info|packageof|install|reinstall|remove)
+      *)
         if test "-$command-" = "--"
         then
           command=$1
@@ -455,13 +455,6 @@ function process_args ()
           packages=( "${packages[@]}" "$1" )
         fi
         shift
-
-      ;;
-
-      *)
-        packages=( "${packages[@]}" "$1" )
-        shift
-
       ;;
 
     esac
@@ -470,25 +463,25 @@ function process_args ()
 
 # command methods
 
-function command_mirrors()
+function aptcyg_mirrors()
 {
   get_mirrors
 }
 
-function command_update()
+function aptcyg_update()
 {
   noupdate=0
   findworkspace
   getsetup
 }
 
-function command_show()
+function aptcyg_show()
 {
   echo 1>&2 The following packages are installed:
   get_installed_packages
 }
 
-function command_find()
+function aptcyg_find()
 {
   checkpackages
   findworkspace
@@ -500,12 +493,12 @@ function command_find()
     'BEGIN{ gsub("\n", "|", installed); installed="^(" installed ")$" } \
      { s=($1~installed)?"i":"p"; print s "  ", $1 }'
 }
-function command_search()
+function aptcyg_search()
 {
-  command_find
+  aptcyg_find
 }
 
-function command_describe()
+function aptcyg_describe()
 {
   checkpackages
   findworkspace
@@ -513,18 +506,18 @@ function command_describe()
   echo ""
   show_desc=1 get_avail_packages "${packages[@]}"
 }
-function command_info()
+function aptcyg_info()
 {
-  command_describe
+  aptcyg_describe
 }
 
-function command_packageof()
+function aptcyg_packageof()
 {
   checkpackages
   find_package_files "${packages[@]}"
 }
 
-function command_install()
+function aptcyg_install()
 {
   local pkg
   checkpackages
@@ -536,12 +529,12 @@ function command_install()
     run_postinstall_scripts
   done
 }
-function command_reinstall()
+function aptcyg_reinstall()
 {
-  command_install
+  aptcyg_install
 }
 
-function command_remove()
+function aptcyg_remove()
 {
   local pkg
   checkpackages
@@ -551,7 +544,7 @@ function command_remove()
   done
 }
 
-function command_help()
+function aptcyg_help()
 {
   usage
 }
@@ -582,4 +575,9 @@ then
   done
 fi
 
-command_${command:-help}
+call_command=aptcyg_${command:=help}
+if [[ $(type $call_command) == "$call_command is a function"* ]] 2>/dev/null; then
+  $call_command
+else
+  echo "invalid command: $command"
+fi
