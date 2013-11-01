@@ -17,14 +17,15 @@
 # (http://www.fsf.org/licensing/licenses/gpl.html)
 
 # this script requires some packages
-for cmd in wget bzip2 tar awk
+for cmd in wget bzip2 tar awk # xz
 do
-  if ! which wget 1>/dev/null 2>/dev/null
+  if ! which $cmd 1>/dev/null 2>/dev/null
   then
-    echo You must install wget, tar, gawk and bzip2 to use apt-cyg.
+    echo You must install wget, tar, gawk bzip2 and xz to use apt-cyg.
     exit 1
   fi
 done
+unset cmd
 
 
 function usage()
@@ -257,7 +258,7 @@ function install_package_noscripts()
   fi
 
   echo "Unpacking..."
-  cat $file | bunzip2 | tar > "/etc/setup/$pkg.lst" xvf - -C /
+  tar xvf "$file" -C / > "/etc/setup/$pkg.lst"
   gzip -f "/etc/setup/$pkg.lst"
   cd ../..
 
@@ -300,7 +301,7 @@ function remove_package()
     continue
   fi
 
-  local dontremove="cygwin coreutils gawk bzip2 tar wget bash"
+  local dontremove="cygwin coreutils gawk bzip2 xz tar wget bash"
   for req in $dontremove
   do
     if test "-$pkg-" = "-$req-"
