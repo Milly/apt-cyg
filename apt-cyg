@@ -37,6 +37,7 @@ function usage()
   echo "  apt-cyg mirrors                       : show mirrors"
   echo "  apt-cyg update                        : update setup.ini"
   echo "  apt-cyg show                          : show installed packages"
+  echo "  apt-cyg versions                      : show installed packages versions"
   echo "  apt-cyg find <patterns>               : find packages matching patterns"
   echo "  apt-cyg search <patterns>             : (alias of find)"
   echo "  apt-cyg describe <patterns>           : describe packages matching patterns"
@@ -340,6 +341,15 @@ function get_installed_packages()
   awk '/[^ ]+ [^ ]+ 0/ {print $1}' /etc/setup/installed.db
 }
 
+function get_installed_versions()
+{
+  # package-name package-name-1.2.3a4-5.tar.bz2 0
+  awk '/[^ ]+ [^ ]+ 0/ {
+         version = gensub("\\.tar\\.\\w+$", "", "", substr($2, length($1)+2));
+         print $1 "=" version;
+       }' /etc/setup/installed.db
+}
+
 function get_avail_packages()
 {
   local query search='$1' output='$1' separator=$'\n'
@@ -479,6 +489,24 @@ function aptcyg_show()
 {
   echo 1>&2 The following packages are installed:
   get_installed_packages
+}
+
+function aptcyg_versions()
+{
+  echo 1>&2 The following packages are installed:
+  get_installed_versions | awk -F= \
+    '{
+       len = length($1);
+       mlen = (mlen < len) ? len : mlen
+       rows[line][0] = $1;
+       rows[line][1] = $2;
+       line++;
+     }
+     END {
+       for ( i = 0; i < line; ++i ) {
+         printf "%-*s  =%s\n", mlen, rows[i][0], rows[i][1];
+       }
+     }'
 }
 
 function aptcyg_find()

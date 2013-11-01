@@ -13,6 +13,7 @@ apt-cyg is a command-line installer for Cygwin which cooperates with Cygwin Setu
 * "apt-cyg mirrors" to show mirrors
 * "apt-cyg update" to update setup.ini
 * "apt-cyg show" to show installed packages
+* "apt-cyg versions" to show installed packages versions
 * "apt-cyg find <pattern(s)>" to find packages matching patterns
 * "apt-cyg search <pattern(s)>" (alias of find)
 * "apt-cyg describe <pattern(s)>" to describe packages matching patterns
