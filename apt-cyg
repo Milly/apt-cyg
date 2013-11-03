@@ -51,6 +51,8 @@ function usage()
   echo "  --noupdate         : don't update setup.ini from mirror (default)"
   echo "  --ignore-case, -i  : ignore case distinctions in <patterns> when finding packages"
   echo "  --match-desc, -m   : <patterns> match the package description"
+  echo "  --display-format, -F <format>"
+  echo "                     : specify output format for find command"
   echo "  --help"
   echo "  --version"
 }
@@ -352,13 +354,93 @@ function get_installed_versions()
 
 function get_avail_packages()
 {
-  local query search='$1' output='$1' separator=$'\n'
+  local query search='$1'
   IFS=$'\n' query="$*"; query="(${query//$'\n'/$')|('})"
   [[ $match_desc -ne 0 ]] && search='$0' # search by description
-  [[ $show_desc  -ne 0 ]] && output='$0' separator=$'\n\n' # show description
-  cat setup.ini | awk -v IGNORECASE=${nocase#0} -v ORS="$separator" -v query="$query" \
-    -e 'BEGIN {RS="\n\n@ "; FS="\n"}' \
-    -e '/^[^#]/ && ('$search' ~ query) {print '$output'}'
+  cat setup.ini | awk \
+    -v IGNORECASE=${nocase#0} \
+    -v query="$query" \
+    -v display_format="${display_format:-'%p'}\\n" \
+    -v installed="$(get_installed_versions)" \
+    'BEGIN {
+       RS="\n\n@ "; FS="\n";
+       j = split(installed, pkgs, "\n");
+       for (i = 1; i <= j; ++i) {
+         split(pkgs[i], p, "=");
+         versions[p[1]] = p[2];
+       }
+       flen["c"] =  1;
+       flen["C"] = 11;
+       flen["d"] = 40; fext["d"] = 1;
+       flen["l"] = 40; fext["l"] = 1;
+       flen["o"] = 15;
+       flen["p"] = 30; fext["p"] = 1;
+       flen["r"] =  0; fext["r"] = 1;
+       flen["s"] = 10;
+       flen["v"] = 10;
+       flen["V"] = 10;
+     }
+     function joinspace(str) { return gensub("[[:space:]]+", " ", "g", str) }
+     function delquote(str) { return gensub("^\"(.*)\"$", "\\1", "", str) }
+     function splitget(str, idx, sep,  ary) {
+       split(str, ary, sep);
+       return ary[idx];
+     }
+     function parsedesc(str, res,  ary, i, j, v) {
+       delete res;
+       str = gensub("\n(\\w+): ", "\n\n\\1\n\n", "g", str);
+       j = split(str, ary, "\n\n");
+       for (i = 2; i <= j; i += 2) {
+         ary[ tolower(ary[i]) ] = delquote(joinspace( ary[i+1] ));
+       }
+       v = versions[ ary[1] ];
+       res["c"] = (v == "") ? "p" : "i";
+       res["C"] = (v == "") ? "purged" : "installed";
+       res["d"] = ary["sdesc"];
+       res["l"] = ary["ldesc"];
+       res["o"] = splitget(ary["install"], 2);
+       res["p"] = ary[1];
+       res["r"] = ary["requires"];
+       res["s"] = ary["category"];
+       res["v"] = (v == "") ? "<none>" : v;
+       res["V"] = ary["version"];
+     }
+     function format(desc,  res, ary, i, j, len, val, param, m) {
+       j = split(display_format, ary, "%");
+       res = ary[1];
+       for (i = 2; i <= j; ++i) {
+         if (ary[i] == "") {
+           res = res "%" ary[++i];
+         } else {
+           param = gensub("^([0-9]*)(\\??)([a-zA-Z])(#?).*",
+                          "\\1,\\2,\\3,\\4", "", ary[i]);
+           if (param != ary[i]) {
+             split(param, m, ",");
+             len = (m[1] == "") ? flen[m[3]] : int(m[1]);
+             val = desc[m[3]];
+             s = substr(ary[i], length(param)-2);
+             if (len != "") {
+               if (len < length(val) && !m[2] &&
+                   (m[1] != "" || !fext[m[3]] && !m[4])) {
+                 # if not expandable
+                 val = substr(val, 1, len);
+               } else if (substr(s, 1, 1) != "\n") {
+                 # if not line end
+                 val = sprintf("%-*s", len, val);
+               }
+             }
+             res = res val s;
+           } else {
+             res = res "%" ary[i];
+           }
+         }
+       }
+       return res;
+     }
+     /^[^#]/ && ('$search' ~ query) {
+       parsedesc($0, desc);
+       printf("%s", format(desc))
+     }'
 }
 
 function find_package_files()
@@ -386,6 +468,7 @@ noupdate=1
 files=()
 nocase=0
 match_desc=0
+display_format=
 command=""
 packages=()
 ignore_recursive_packages=""
@@ -457,6 +540,11 @@ function process_args ()
         shift
       ;;
 
+      --display-format|-F)
+        display_format="$2"
+        shift ; shift
+      ;;
+
       *)
         if test "-$command-" = "--"
         then
@@ -515,11 +603,9 @@ function aptcyg_find()
   findworkspace
   getsetup
   echo ""
-  echo "Searching packages (i:installed p:purged):"
-  get_avail_packages "${packages[@]}" | \
-    awk -v installed="$(get_installed_packages)" \
-    'BEGIN{ gsub("\n", "|", installed); installed="^(" installed ")$" } \
-     { s=($1~installed)?"i":"p"; print s "  ", $1 }'
+  echo "Searching packages:"
+  display_format="${display_format:-"%c %p =%v -- %d"}" \
+    get_avail_packages "${packages[@]}"
 }
 function aptcyg_search()
 {
@@ -532,7 +618,8 @@ function aptcyg_describe()
   findworkspace
   getsetup
   echo ""
-  show_desc=1 get_avail_packages "${packages[@]}"
+  display_format="@ %p#\n%d#\\nDescription: %l#\\nCategory: %s#\\nRequires: %r#\\nVersion: %V#\\n" \
+    get_avail_packages "${packages[@]}"
 }
 function aptcyg_info()
 {

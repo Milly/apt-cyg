@@ -17,53 +17,47 @@ function _cygwin_packages() {
   fi
 
   expl=("${(@)argv[1,-2]}")
-  _cygwin_packages_update_$pkgset
+  _cygwin_packages_update_cache $pkgset
   typeset -gH $cachevar
-  _tags packages && compadd "$expl[@]" - "${(@P)cachevar}"
+  _tags packages && _values -s ' ' "$pkgset packages" "${(@P)cachevar}"
 }
 
-_cygwin_packages_update_avail () {
-  if ( [[ ${+_cygwin_packages_cache_avail} -eq 0 ]] ||
-       _cache_invalid CYGPACK_avail ) &&
-       ! _retrieve_cache CYGPACK_avail
+_cygwin_packages_update_cache() {
+  local pkgset="$1"
+  if ( [[ ${+_cygwin_packages_cache} -eq 0 ]] ||
+       _cache_invalid CYGPACK_all ) &&
+       ! _retrieve_cache CYGPACK_all
   then
-    typeset -U _cygwin_packages_cache_avail
-    _cygwin_packages_cache_avail=(
-      ${${(@M)${(@f)"$(LC_ALL=C _call_program commands apt-cyg find . 2>/dev/null)"}:#[ip] *}##[ip] #}
+    typeset -U _cygwin_packages_cache
+    _cygwin_packages_cache=(
+      ${(@)${(@M)${(f)"${${$(LC_ALL=C _call_program commands apt-cyg -F "'%c,%1?p|%1?d'" find . 2>/dev/null)//\[/\\[}//\]/\\]}"}##[ip],*}/|/[}\]
     )
-    _store_cache CYGPACK_avail _cygwin_packages_cache_avail
+    _store_cache CYGPACK_all _cygwin_packages_cache
   fi
-  cachevar=_cygwin_packages_cache_avail
-}
-
-_cygwin_packages_update_installed () {
-  if ( [[ ${+_cygwin_packages_cache_installed} -eq 0 ]] ||
-       _cache_invalid CYGPACK_installed ) &&
-       ! _retrieve_cache CYGPACK_installed
-  then
-    _cygwin_packages_cache_installed=(
-      ${(f)"$(LC_ALL=C _call_program commands apt-cyg show 2>/dev/null)"}
-    )
-    _store_cache CYGPACK_installed _cygwin_packages_cache_installed
-  fi
-  cachevar=_cygwin_packages_cache_installed
-}
-
-_cygwin_packages_update_uninstalled () {
-  _cygwin_packages_update_avail
-  _cygwin_packages_update_installed
-  if (( ! $+_cygwin_packages_cache_uninstalled )); then
-    # Package lists too large to efficiently diff with zsh expansion
-    _cygwin_packages_cache_uninstalled=(
-      $( print -l $_cygwin_packages_cache_avail |
-         fgrep -xvf =(print -l $_cygwin_packages_cache_installed) )
-    )
-  fi
-  cachevar=_cygwin_packages_cache_uninstalled
+  _cygwin_packages_cache_avail=( ${(@)_cygwin_packages_cache#*,} )
+  _cygwin_packages_cache_installed=( ${${(M)_cygwin_packages_cache##i,*}#i,} )
+  _cygwin_packages_cache_uninstalled=( ${${(M)_cygwin_packages_cache##p,*}#p,} )
+  cachevar=_cygwin_packages_cache_$pkgset
 }
 
 _cygwin_packages_caching_policy () {
   [[ "$1" -ot /etc/setup/installed.db ]]
+}
+
+# Helper function for -F / --display-format
+function _aptcyg_format_strings() {
+  _values -s , 'format string' \
+    '%%[Literal %]' \
+    '%c[Current state flag]' \
+    '%C[Current state]' \
+    '%d[Description]' \
+    '%l[Long Description]' \
+    '%o[Download size]' \
+    '%p[Package name]' \
+    '%r[Requires]' \
+    '%s[Section (Category)]' \
+    '%v[Current version]' \
+    '%V[Candidate version]'
 }
 
 _arguments -C \
@@ -76,6 +70,7 @@ _arguments -C \
   "(-u --update)--noupdate[don't update setup.ini from mirror (default)]" \
   '(-i --ignore-case)'{-i,--ignore-case}'[ignore case distinctions in <patterns> when finding packages]' \
   '(-d --match-desc)'{-d,--match-desc}'[<patterns> match the package description]' \
+  '(-F --display-format)'{-F,--display-format}'[specify output format for find command]:format:_aptcyg_format_strings' \
   '1: :->cmds' \
   '*: :->args' && ret=0
 
