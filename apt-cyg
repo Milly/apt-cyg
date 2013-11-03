@@ -362,6 +362,7 @@ function get_avail_packages()
     -v query="$query" \
     -v display_format="${display_format:-'%p'}\\n" \
     -v installed="$(get_installed_versions)" \
+    -v show_other_vers="${show_other_vers:-0}" \
     'BEGIN {
        RS="\n\n@ "; FS="\n";
        j = split(installed, pkgs, "\n");
@@ -386,10 +387,21 @@ function get_avail_packages()
        split(str, ary, sep);
        return ary[idx];
      }
-     function parsedesc(str, res,  ary, i, j, v) {
+     function parsedesc(str, res,  ver, ary, i, j, p) {
        delete res;
-       str = gensub("\n(\\w+): ", "\n\n\\1\n\n", "g", str);
-       j = split(str, ary, "\n\n");
+       j = split(str, ary, "\n\\[prev\\]\n");
+       parsedesc_sub(ary[1], ver);
+       for (p in ver) res[1][p] = ver[p];
+       for (i = 2; i <= j; ++i) {
+         parsedesc_sub(ary[1] "\n" ary[i], ver);
+         for (p in ver) res[i][p] = ver[p];
+       }
+       return j;
+     }
+     function parsedesc_sub(str, res,  ary, i, j, v) {
+       delete res;
+       str = gensub("\n(\\w+): ", "\0\\1\0", "g", str);
+       j = split(str, ary, "\0");
        for (i = 2; i <= j; i += 2) {
          ary[ tolower(ary[i]) ] = delquote(joinspace( ary[i+1] ));
        }
@@ -438,8 +450,11 @@ function get_avail_packages()
        return res;
      }
      /^[^#]/ && ('$search' ~ query) {
-       parsedesc($0, desc);
-       printf("%s", format(desc))
+       vers = parsedesc($0, desc);
+       if (!show_other_vers) vers = 1;
+       for (i = 1; i <= vers; ++i) {
+         printf("%s", format(desc[i]));
+       }
      }'
 }
 
@@ -618,6 +633,7 @@ function aptcyg_describe()
   findworkspace
   getsetup
   echo ""
+  show_other_vers=1 \
   display_format="@ %p#\n%d#\\nDescription: %l#\\nCategory: %s#\\nRequires: %r#\\nVersion: %V#\\n" \
     get_avail_packages "${packages[@]}"
 }
