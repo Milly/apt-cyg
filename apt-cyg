@@ -26,7 +26,24 @@ do
   fi
 done
 unset cmd
+packages_essential=( cygwin coreutils gawk bzip2 xz tar wget bash )
 
+# options
+noscripts=0
+noupdate=1
+files=()
+nocase=0
+match_desc=0
+display_format=
+command=""
+packages=()
+packages_auto=()
+packages_newly=()
+packages_upgrade=()
+packages_reinstall=()
+packages_remove=()
+
+# functions
 
 function usage()
 {
@@ -34,6 +51,7 @@ function usage()
   echo "  apt-cyg install <package names>       : install packages"
   echo "  apt-cyg reinstall <package names>     : re-install packages"
   echo "  apt-cyg remove <package names>        : remove packages"
+  echo "  apt-cyg upgrade                       : upgrade all packages"
   echo "  apt-cyg mirrors                       : show mirrors"
   echo "  apt-cyg update                        : update setup.ini"
   echo "  apt-cyg show                          : show installed packages"
@@ -164,178 +182,261 @@ function checkpackages()
   fi
 }
 
-function install_package_noscripts()
+function install_packages_with_depends()
 {
-  checkpackages >/dev/null
-  findworkspace >/dev/null
-  local pkg=$1
+  local action pkg downloaded_file
+  local -a installs
+  local -A files
 
-  ignore_recursive_packages=${ignore_recursive_packages}%${pkg}%
-
-  if test "$command" != "reinstall"
+  installs=( $(get_depend_packages "$@") )
+  if [[ $? -ne 0 ]]
   then
-    local already=`grep -c "^$pkg " /etc/setup/installed.db`
-    if test $already -ge 1
-    then
-      echo Package $pkg is already installed, skipping
-      return 0
-    fi
-  fi
-  echo ""
-  echo Checking dependencies for $pkg
-
-  # look for package and save desc file
-
-  mkdir -p "release/$pkg"
-  cat setup.ini | awk > "release/$pkg/desc" -v package="$pkg" \
-    'BEGIN{RS="\n\n@ "; FS="\n"} {if ($1 == package) {desc = $0; px++}} \
-     END {if (px == 1 && desc != "") print desc; else print "Package not found"}'
-
-  local desc=`cat "release/$pkg/desc"`
-  if test "-$desc-" = "-Package not found-"
-  then
-    echo Package $pkg not found or ambiguous name
-    rm -r "release/$pkg"
-    return 1
-  fi
-  echo Found package $pkg
-
-  # download and unpack the bz2 file
-
-  # pick the latest version, which comes first
-  local install=`cat "release/$pkg/desc" | awk '/^install: / { print $2; exit }'`
-
-  if test "-$install-" = "--"
-  then
-    echo "Could not find \"install\" in package description: obsolete package?"
+    echo "The following packages are not found or ambiguous name:"
+    echo "  ${installs[*]}"
     return 1
   fi
 
-  # recursively install required packages
-
-  echo > /tmp/awk.$$ '/^requires: / {s=gensub("(requires: )?([^ ]+) ?", "\\2 ", "g", $0); print s}'
-  local requires=`cat "release/$pkg/desc" | awk -f /tmp/awk.$$`
-
-  local warn=0
-  if ! test "-$requires-" = "--"
+  installs=( $(get_installable_packages "${installs[@]}") )
+  if [[ $command == reinstall ]]
   then
-    echo Package $pkg requires the following packages, installing:
-    echo $requires
-    local package
-    for package in $requires
+    for pkg in "$@"
     do
-      if [ `echo ${ignore_recursive_packages} | grep "%${package}%"` ]
-      then
-        echo Package $pkg is recursive, skipping
-      else
-        install_package_noscripts $package
-      fi
-      if ! test $? = 0 ; then warn=1; fi
+      [[ " ${installs[*]} " != *" $pkg "* ]] && installs+=( r,$pkg )
     done
   fi
-  if ! test $warn = 0
+  if [[ ${#installs[*]} -eq 0 ]]
   then
-    echo "Warning: some required packages did not install, continuing"
+    echo "No packages will be installed, upgraded, or removed."
+    return 0
   fi
+
+  for pkg in "${installs[@]}"
+  do
+    action=${pkg%%,*} pkg=${pkg#*,}
+    case $action in
+      u) packages_upgrade+=( $pkg );;
+      r) packages_reinstall+=( $pkg );;
+      *)
+        if [[ " $* " == *" $pkg "* ]]
+        then
+          packages_newly+=( $pkg )
+        else
+          packages_auto+=( $pkg )
+        fi ;;
+    esac
+  done
+
+  show_install_conditions
+  select_continue || return 0
 
   echo ""
-  echo Installing $pkg
-  checkpackages >/dev/null
-  findworkspace >/dev/null
+  echo "Downloading packages"
+  for pkg in "${installs[@]#?,}"
+  do
+    download_package $pkg || return $?
+    files[$pkg]="$downloaded_file"
+  done
 
-  local file=`basename $install`
-  cd "release/$pkg"
-  if test "$noupdate" == "0" -a -f "$file"
+  for pkg in "${installs[@]}"
+  do
+    action=${pkg%%,*} pkg=${pkg#*,}
+    echo ""
+
+    if [[ $action == u ]]
+    then
+      echo "Upgrading $pkg"
+      remove_package "$pkg" || return $?
+    fi
+
+    install_package_noscripts $pkg "${files[$pkg]}"
+    if [[ $? -ne 0 ]]
+    then
+      echo "Install failed: $pkg"
+      return $?
+    fi
+    run_postinstall_scripts
+  done
+
+  echo ""
+  echo "Done"
+}
+
+function remove_packages()
+{
+  local pkg
+  local -a installed
+
+  installed=( $(get_installed_packages) )
+  for pkg in "$@"
+  do
+    if [[ " ${installed[*]} " != *" $pkg "* ]]
+    then
+      echo "Package $pkg is not installed, so it will not be removed"
+    else
+      packages_remove+=( $pkg )
+    fi
+  done
+  [[ ${#installed[*]} -ne ${#packages_remove[*]} ]] && echo ""
+
+  if [[ ${#packages_remove[*]} -eq 0 ]]
   then
-    rm $file
+    echo "No packages will be installed, upgraded, or removed."
+    return 0
   fi
-  wget -nc $mirror/$install
 
-  # check the md5
-  local digest=`cat "desc" | awk '/^install: / { print $4; exit }'`
-  local digactual=`md5sum $file | awk '{print $1}'`
-  if ! test $digest = $digactual
+  show_install_conditions
+  select_continue || return 0
+
+  for pkg in "${packages_remove[@]}"
+  do
+    echo ""
+    remove_package $pkg
+  done
+
+  echo ""
+  echo "Done"
+}
+
+function show_install_conditions()
+{
+  local msg="${#packages_upgrade[*]} packages upgraded, $((${#packages_auto[*]} + ${#packages_newly[*]})) newly installed"
+  if [[ ${#packages_auto[*]} -ne 0 ]]
   then
-    echo MD5 sum did not match, exiting
+    echo "The following NEW packages will be automatically installed:"
+    echo "  "${packages_auto[*]}
+  fi
+  if [[ ${#packages_newly[*]} -ne 0 ]]
+  then
+    echo "The following NEW packages will be installed:"
+    echo "  "${packages_newly[*]}
+  fi
+  if [[ ${#packages_upgrade[*]} -ne 0 ]]
+  then
+    echo "The following packages will be upgraded:"
+    echo "  "${packages_upgrade[*]}
+  fi
+  if [[ ${#packages_reinstall[*]} -ne 0 ]]
+  then
+    echo "The following packages will be REINSTALLED:"
+    echo "  "${packages_reinstall[*]}
+    msg+=", ${#packages_reinstall[*]} reinstalled"
+  fi
+  if [[ ${#packages_remove[*]} -ne 0 ]]
+  then
+    echo "The following packages will be REMOVED:"
+    echo "  "${packages_remove[*]}
+  fi
+  msg+=" and ${#packages_remove[*]} to removed."
+  echo "$msg"
+}
+
+function download_package()
+{
+  findworkspace >/dev/null
+  local pkg=$1 file
+  local -A desc
+
+  eval "desc=( $(get_package_desc $pkg) )"
+  if [[ -z "${desc[install_file]}" ]]
+  then
+    echo "Package $pkg is cannot fetch, install file not provided"
     return 1
   fi
 
-  echo "Unpacking..."
-  tar xvf "$file" -C / > "/etc/setup/$pkg.lst"
-  gzip -f "/etc/setup/$pkg.lst"
-  cd ../..
+  mkdir -p "release/$pkg"
+  file="release/$pkg/${desc[install_file]}"
+  downloaded_file="$file"
 
+  # remove archive, if digest not match
+  if [[ $noupdate -eq 0 && -f "$file" ]] || \
+     ! check_digest "$file" "${desc[install_digest]}"
+  then
+    rm -f "$file"
+  fi
+
+  wget -nc -O "$file" "${mirror%/}/${desc[install_path]}"
+  if ! check_digest "$file" "${desc[install_digest]}"
+  then
+    echo "MD5 sum did not match: $file"
+    return 1
+  fi
+}
+
+function check_digest()
+{
+  local file="$1" digest="$2"
+  [[ -f "$file" ]] || return 2
+  [[ "$(md5sum "$file")" == "$digest "* ]]
+}
+
+function install_package_noscripts()
+{
+  findworkspace >/dev/null
+  local pkg=$1 file="$2"
+
+  echo "Installing $pkg"
+
+  # unpack archive
+  echo "Unpacking ${file##*/}"
+  tar xvf "$file" -C / > "/etc/setup/$pkg.lst" || return 1
+  gzip -f "/etc/setup/$pkg.lst"
 
   # update the package database
-
-  cat /etc/setup/installed.db | awk > /tmp/awk.$$ -v pkg="$pkg" -v bz=$file \
-    '{if (ins != 1 && pkg < $1) {print pkg " " bz " 0"; ins=1}; print $0} \
-     END{if (ins != 1) print pkg " " bz " 0"}'
+  awk -v pkg="$pkg" -v bz="${file##*/}" \
+    '{if (ins != 1 && pkg < $1) {print pkg " " bz " 0"; ins=1}; print} \
+     END{if (ins != 1) print pkg " " bz " 0"}' \
+    /etc/setup/installed.db \
+    > /etc/setup/installed.db-new
   mv /etc/setup/installed.db /etc/setup/installed.db-save
-  mv /tmp/awk.$$ /etc/setup/installed.db
-
-
-  echo Package $pkg installed
+  mv /etc/setup/installed.db-new /etc/setup/installed.db
 }
 
 function run_postinstall_scripts()
 {
-  local pis script
-  pis=`ls /etc/postinstall/*.sh 2>/dev/null | wc -l`
-  if test $pis -gt 0 && ! test $noscripts -eq 1
-  then
-    echo Running postinstall scripts
-    for script in /etc/postinstall/*.sh
-    do
-      $script
-      mv $script $script.done
-    done
-  fi
+  local post_scripts script
+  post_scripts=( /etc/postinstall/*.sh )
+  [[ "$post_scripts" == "/etc/postinstall/*.sh" ]] && return
+  echo "Running postinstall scripts"
+  for script in "${post_scripts[@]}"
+  do
+    $script
+    mv $script $script.done
+  done
 }
 
 function remove_package()
 {
   local pkg=$1
 
-  local already=`grep -c "^$pkg " /etc/setup/installed.db`
-  if test $already = 0
+  if [[ " ${packages_essential[*]} " == *" $pkg "* ]]
   then
-    echo Package $pkg is not installed, skipping
-    continue
-  fi
-
-  local dontremove="cygwin coreutils gawk bzip2 xz tar wget bash"
-  for req in $dontremove
-  do
-    if test "-$pkg-" = "-$req-"
-    then
-      echo apt-cyg cannot remove package $pkg, exiting
-      exit 1
-    fi
-  done
-
-  if ! test -e "/etc/setup/$pkg.lst.gz"
-  then
-    echo Package manifest missing, cannot remove $pkg.  Exiting
+    echo "Package $pkg is cannot remove, apt-cyg depends on it"
     exit 1
   fi
-  echo Removing $pkg
+  if [[ ! -e "/etc/setup/$pkg.lst.gz" ]]
+  then
+    echo "Package $pkg is cannot remove, missing manifest file"
+    exit 1
+  fi
+
+  echo "Removing $pkg"
 
   # run preremove scripts
-
-  if test -e "/etc/preremove/$pkg.sh"
+  if [[ -e "/etc/preremove/$pkg.sh" ]]
   then
     "/etc/preremove/$pkg.sh"
     rm "/etc/preremove/$pkg.sh"
   fi
 
+  # update the package database
   cat "/etc/setup/$pkg.lst.gz" | gzip -d | awk '/[^\/]$/ {print "rm -f \"/" $0 "\""}' | sh
   rm "/etc/setup/$pkg.lst.gz"
   rm -f /etc/postinstall/$pkg.sh.done
-  cat /etc/setup/installed.db | awk > /tmp/awk.$$ -v pkg="$pkg" '{if (pkg != $1) print $0}'
+  awk -v pkg="$pkg" '(pkg != $1){print}' \
+    /etc/setup/installed.db \
+    > /etc/setup/installed.db-new
   mv /etc/setup/installed.db /etc/setup/installed.db-save
-  mv /tmp/awk.$$ /etc/setup/installed.db
-  echo Package $pkg removed
+  mv /etc/setup/installed.db-new /etc/setup/installed.db
 }
 
 function get_installed_packages()
@@ -354,108 +455,142 @@ function get_installed_versions()
 
 function get_avail_packages()
 {
-  local query search='$1'
+  local query
   IFS=$'\n' query="$*"; query="(${query//$'\n'/$')|('})"
-  [[ $match_desc -ne 0 ]] && search='$0' # search by description
-  cat setup.ini | awk \
+  awk \
     -v IGNORECASE=${nocase#0} \
     -v query="$query" \
-    -v display_format="${display_format:-'%p'}\\n" \
+    -v match_desc="$match_desc" \
+    -v display_format="${display_format:-"%1?p"}\n" \
     -v installed="$(get_installed_versions)" \
     -v show_other_vers="${show_other_vers:-0}" \
-    'BEGIN {
-       RS="\n\n@ "; FS="\n";
-       j = split(installed, pkgs, "\n");
-       for (i = 1; i <= j; ++i) {
-         split(pkgs[i], p, "=");
-         versions[p[1]] = p[2];
-       }
-       flen["c"] =  1;
-       flen["C"] = 11;
-       flen["d"] = 40; fext["d"] = 1;
-       flen["l"] = 40; fext["l"] = 1;
-       flen["o"] = 15;
-       flen["p"] = 30; fext["p"] = 1;
-       flen["r"] =  0; fext["r"] = 1;
-       flen["s"] = 10;
-       flen["v"] = 10;
-       flen["V"] = 10;
-     }
-     function joinspace(str) { return gensub("[[:space:]]+", " ", "g", str) }
-     function delquote(str) { return gensub("^\"(.*)\"$", "\\1", "", str) }
-     function splitget(str, idx, sep,  ary) {
-       split(str, ary, sep);
-       return ary[idx];
-     }
-     function parsedesc(str, res,  ver, ary, i, j, p) {
-       delete res;
-       j = split(str, ary, "\n\\[prev\\]\n");
-       parsedesc_sub(ary[1], ver);
-       for (p in ver) res[1][p] = ver[p];
-       for (i = 2; i <= j; ++i) {
-         parsedesc_sub(ary[1] "\n" ary[i], ver);
-         for (p in ver) res[i][p] = ver[p];
-       }
-       return j;
-     }
-     function parsedesc_sub(str, res,  ary, i, j, v) {
-       delete res;
-       str = gensub("\n(\\w+): ", "\0\\1\0", "g", str);
-       j = split(str, ary, "\0");
-       for (i = 2; i <= j; i += 2) {
-         ary[ tolower(ary[i]) ] = delquote(joinspace( ary[i+1] ));
-       }
-       v = versions[ ary[1] ];
-       res["c"] = (v == "") ? "p" : "i";
-       res["C"] = (v == "") ? "purged" : "installed";
-       res["d"] = ary["sdesc"];
-       res["l"] = ary["ldesc"];
-       res["o"] = splitget(ary["install"], 2);
-       res["p"] = ary[1];
-       res["r"] = ary["requires"];
-       res["s"] = ary["category"];
-       res["v"] = (v == "") ? "<none>" : v;
-       res["V"] = ary["version"];
-     }
-     function format(desc,  res, ary, i, j, len, val, param, m) {
-       j = split(display_format, ary, "%");
-       res = ary[1];
-       for (i = 2; i <= j; ++i) {
-         if (ary[i] == "") {
-           res = res "%" ary[++i];
-         } else {
-           param = gensub("^([0-9]*)(\\??)([a-zA-Z])(#?).*",
-                          "\\1,\\2,\\3,\\4", "", ary[i]);
-           if (param != ary[i]) {
-             split(param, m, ",");
-             len = (m[1] == "") ? flen[m[3]] : int(m[1]);
-             val = desc[m[3]];
-             s = substr(ary[i], length(param)-2);
-             if (len != "") {
-               if (len < length(val) && !m[2] &&
-                   (m[1] != "" || !fext[m[3]] && !m[4])) {
-                 # if not expandable
-                 val = substr(val, 1, len);
-               } else if (substr(s, 1, 1) != "\n") {
-                 # if not line end
-                 val = sprintf("%-*s", len, val);
-               }
-             }
-             res = res val s;
-           } else {
-             res = res "%" ary[i];
-           }
-         }
-       }
-       return res;
-     }
-     /^[^#]/ && ('$search' ~ query) {
-       vers = parsedesc($0, desc);
-       if (!show_other_vers) vers = 1;
-       for (i = 1; i <= vers; ++i) {
-         printf("%s", format(desc[i]));
-       }
-     }'
+    -e "
+      $awk_util_functions
+      $awk_parse_description
+      $awk_format_description
+    "'
+      BEGIN {
+        search_field = match_desc ? 0 : 1;
+      }
+      /^[^#]/ && ($search_field ~ query) {
+        vers = parsedesc($0, desc);
+        if (!show_other_vers) vers = 1;
+        for (i = 1; i <= vers; ++i) {
+          if (!match_desc || $1 ~ query ||
+              desc[i]["sdesc"] ~ query || desc[i]["ldesc"] ~ query) {
+            printf("%s", format(desc[i]));
+          }
+        }
+      }
+    ' \
+    setup.ini
+}
+
+function get_depend_packages()
+{
+  local packages
+  IFS=$'\n' packages="$*"
+  awk \
+    -v packages="$packages" \
+    -e "
+      $awk_util_functions
+      $awk_parse_description
+    "'
+      /^[^#]/ {
+        parsedesc($0, desc);
+        avails[ desc[1]["package"] ] = 1;
+        split(desc[1]["requires"], deps, " ");
+        for (i in deps)
+          depends[$1][i] = deps[i];
+      }
+
+      END {
+        split(packages, pkgs, "\n");
+        find_deps(pkgs);
+        for (pkg in losts) {
+          has_losts = 1;
+          print pkg;
+        }
+        if (has_losts)
+          exit 1;
+        for (i in ordered_deps)
+          print ordered_deps[i];
+      }
+
+      function find_deps(pkgs,  idx, pkg) {
+        for (i in pkgs) {
+          pkg = pkgs[i];
+          if (!all_deps[pkg]) {
+            all_deps[pkg] = 1;
+            if (!(pkg in avails)) {
+              losts[pkg] = 1;
+            } else if (pkg in depends) {
+              idx = find_deps(depends[pkg], idx);
+            }
+            ordered_deps[++idx] = pkg;
+          }
+        }
+        return idx;
+      }
+    ' \
+    setup.ini
+}
+
+function get_package_desc()
+{
+  awk \
+    -v package="$1" \
+    -v version="$2" \
+    -e "
+      $awk_util_functions
+      $awk_parse_description
+    "'
+      /^[^#]/ && ($1 == package) {
+        vers = parsedesc($0, desc);
+        for (i = 1; i <= vers; ++i) {
+          if (version && version != desc[i]["version"])
+            continue;
+          for (n in desc[i])
+            print "[" n "]=\x27" gensub("\x27", "\x27\\\\\x27\x27", "g", desc[i][n]) "\x27";
+          exit;
+        }
+      }
+    ' \
+    setup.ini
+}
+
+function get_installable_packages()
+{
+  local packages
+  IFS=$'\n' packages="$*"
+  awk \
+    -v packages="$packages" \
+    -v installed="$(get_installed_versions)" \
+    -e "
+      $awk_util_functions
+      $awk_parse_description
+      $awk_format_description
+    "'
+      /^[^#]/ && 0 < index("\n" packages "\n", "\n" $1 "\n") {
+        parsedesc($0, desc);
+        for (i in desc[1])
+          pkgdesc[$1][i] = desc[1][i];
+      }
+      END {
+        j = split(packages, pkgs, "\n");
+        for (i = 1; i <= j; ++i) {
+          pkg = pkgs[i];
+          v1 = versions[pkg];
+          v2 = pkgdesc[pkg]["version"];
+          if (v1 == "") {
+            print "i," pkg;
+          } else if (0 < comp_ver(v1, v2)) {
+            print "u," pkg;
+          }
+        }
+      }
+    ' \
+    setup.ini
 }
 
 function find_package_files()
@@ -476,19 +611,190 @@ function find_package_files()
   )
 }
 
-# process options
+function select_continue()
+{
+  local res
+  for ((;;))
+  do
+    read -p "Do you want to continue? [Y/n] " res
+    case "${res:-y}" in
+      [Yy]) return 0;;
+      [Nn]) return 1;;
+    esac
+    echo "Invalid response; please enter 'y' or 'n'."
+  done
+}
 
-noscripts=0
-noupdate=1
-files=()
-nocase=0
-match_desc=0
-display_format=
-command=""
-packages=()
-ignore_recursive_packages=""
+function init_awk_scripts()
+{
+read -r -d $'\0' awk_util_functions <<'_END_awk_util_functions_'
+  function joinspace(str) {
+    return gensub("[[:space:]]+", " ", "g", str);
+  }
 
-function process_args ()
+  function delquote(str) {
+    return gensub("^\"(.*)\"$", "\\1", "", str);
+  }
+
+  function splitget(str, idx, sep    ,ary) {
+    split(str, ary, sep);
+    return ary[idx];
+  }
+
+  function comp_ver(v1, v2    ,a1,a2,i,j1,j2) {
+    if (v1 == v2) return 0;
+    v1 = gensub("([0-9]+)([a-zA-Z]+)([0-9]*)", "\1,\2,\3", "g", v1);
+    v2 = gensub("([0-9]+)([a-zA-Z]+)([0-9]*)", "\1,\2,\3", "g",  v2);
+    return comp_ver_sub(v1, v2, "[.-]", ",");
+  }
+
+  function comp_ver_sub(v1, v2, sep, nsep    ,res,a1,a2,i,j1,j2) {
+    if (v1 == v2) return 0;
+    j1 = split(v1, a1, sep);
+    j2 = split(v2, a2, sep);
+    j1 = (j1 < j2) ? j2 : j1;
+    for (i = 1; i <= j1; ++i) {
+      if (nsep != "") {
+        res = comp_ver_sub(a1[i], a2[i], nsep);
+        if (res != 0) return res;
+      } else {
+        if (int(a1[i]) < int(a2[i])) return 1;
+        if (int(a1[i]) > int(a2[i])) return -1;
+        if (a1[i] < a2[i]) return 1;
+        if (a1[i] > a2[i]) return -1;
+      }
+    }
+    return 0;
+  }
+_END_awk_util_functions_
+typeset -r awk_util_functions
+
+read -r -d $'\0' awk_parse_description <<'_END_awk_parse_description_'
+  BEGIN { RS="\n\n@ "; FS="\n"; }
+
+  function parsedesc(str, res    ,ver,ary,i,j,p) {
+    delete res;
+    str = gensub("\\n\\[([^\\n]*)\\]\\n", "\0release: \\1\n", "g", str);
+    j = split(str, ary, "\0");
+    parsedesc_sub(ary[1] "\nrelease: current", ver);
+    for (p in ver) res[1][p] = ver[p];
+    for (i = 2; i <= j; ++i) {
+      parsedesc_sub(ary[1] "\n" ary[i], ver);
+      for (p in ver) res[i][p] = ver[p];
+    }
+    return j;
+  }
+
+  function parsedesc_sub(str, res    ,ary,ary2,i,j,n) {
+    delete res;
+    str = gensub("\n(\\w+): ", "\0\\1\0", "g", str);
+    j = split(str, ary, "\0");
+    res["package"] = ary[1];
+    for (i = 2; i <= j; i += 2) {
+      n = tolower(ary[i]);
+      res[n] = delquote(joinspace( ary[i+1] ));
+      if ( n == "install" || n == "source" ) {
+        split(ary[i+1], ary2, " ");
+        res[n "_path"] = ary2[1];
+        res[n "_file"] = gensub(".*/", "", "", ary2[1]);
+        res[n "_size"] = ary2[2];
+        res[n "_digest"] = ary2[3];
+      }
+    }
+  }
+_END_awk_parse_description_
+typeset -r awk_parse_description
+
+read -r -d $'\0' awk_format_description <<'_END_awk_format_description_'
+  BEGIN {
+    j = split(installed, pkgs, "\n");
+    for (i = 1; i <= j; ++i) {
+      split(pkgs[i], p, "=");
+      versions[p[1]] = p[2];
+    }
+    flen["a"] =  1;
+    flen["A"] = 10;
+    flen["c"] =  1;
+    flen["C"] = 11;
+    flen["d"] = 40; fext["d"] = 1;
+    flen["g"] = 30; fext["g"] = 1;
+    flen["l"] = 40; fext["l"] = 1;
+    flen["o"] = 15;
+    flen["p"] = 30; fext["p"] = 1;
+    flen["r"] =  0; fext["r"] = 1;
+    flen["s"] = 10;
+    flen["v"] = 10;
+    flen["V"] = 10;
+  }
+
+  function format_vars(desc, res    ,v) {
+    delete res;
+    v = versions[ desc["package"] ];
+    res["a"] = "=";
+    res["A"] = "";
+    res["c"] = (v == "") ? "p" : "i";
+    res["C"] = (v == "") ? "purged" : "installed";
+    res["d"] = desc["sdesc"];
+    res["g"] = desc["category"];
+    res["l"] = desc["ldesc"];
+    res["o"] = splitget(desc["install"], 2);
+    res["p"] = desc["package"];
+    res["r"] = desc["requires"];
+    res["s"] = desc["release"];
+    res["v"] = (v == "") ? "<none>" : v;
+    res["V"] = desc["version"];
+    if (mode == "install") {
+      if (v == "") {
+        res["a"] = "i";
+        res["A"] = "install";
+      } else {
+        res["a"] = "u";
+        res["A"] = "upgrade";
+      }
+    } else if (mode == "remove") {
+      res["a"] = "p";
+      res["A"] = "purge";
+    }
+  }
+
+  function format(desc    ,res,ary,i,j,len,val,param,m) {
+    format_vars(desc, vars);
+    j = split(display_format, ary, "%");
+    res = ary[1];
+    for (i = 2; i <= j; ++i) {
+      if (ary[i] == "") {
+        res = res "%" ary[++i];
+      } else {
+        param = gensub("^([0-9]*)(\\??)([a-zA-Z])(#?).*",
+                       "\\1,\\2,\\3,\\4", "", ary[i]);
+        if (param != ary[i]) {
+          split(param, m, ",");
+          len = (m[1] == "") ? flen[m[3]] : int(m[1]);
+          val = vars[m[3]];
+          s = substr(ary[i], length(param)-2);
+          if (len != "") {
+            if (len < length(val) && !m[2] &&
+                (m[1] != "" || !fext[m[3]] && !m[4])) {
+              # if not expandable
+              val = substr(val, 1, len);
+            } else if (substr(s, 1, 1) != "\n") {
+              # if not line end
+              val = sprintf("%-*s", len, val);
+            }
+          }
+          res = res val s;
+        } else {
+          res = res "%" ary[i];
+        }
+      }
+    }
+    return res;
+  }
+_END_awk_format_description_
+typeset -r awk_format_description
+}
+
+function process_args()
 {
   while test $# -gt 0
   do
@@ -634,7 +940,7 @@ function aptcyg_describe()
   getsetup
   echo ""
   show_other_vers=1 \
-  display_format="@ %p#\n%d#\\nDescription: %l#\\nCategory: %s#\\nRequires: %r#\\nVersion: %V#\\n" \
+  display_format='%c -- %p#\nDescription: %d#\n  %l#\nCategory: %g#\nRequires: %r#\nVersion: %V# (%1?s)\n' \
     get_avail_packages "${packages[@]}"
 }
 function aptcyg_info()
@@ -650,15 +956,11 @@ function aptcyg_packageof()
 
 function aptcyg_install()
 {
-  local pkg
   checkpackages
   findworkspace
   getsetup
-  for pkg in "${packages[@]}"
-  do
-    install_package_noscripts $pkg
-    run_postinstall_scripts
-  done
+  echo ""
+  install_packages_with_depends "${packages[@]}"
 }
 function aptcyg_reinstall()
 {
@@ -667,12 +969,17 @@ function aptcyg_reinstall()
 
 function aptcyg_remove()
 {
-  local pkg
   checkpackages
-  for pkg in "${packages[@]}";
-  do
-    remove_package $pkg
-  done
+  echo ""
+  remove_packages "${packages[@]}"
+}
+
+function aptcyg_upgrade()
+{
+  findworkspace
+  getsetup
+  echo ""
+  install_packages_with_depends $(get_installed_packages)
 }
 
 function aptcyg_help()
@@ -708,6 +1015,7 @@ fi
 
 call_command=aptcyg_${command:=help}
 if [[ $(type $call_command) == "$call_command is a function"* ]] 2>/dev/null; then
+  init_awk_scripts
   $call_command
 else
   echo "invalid command: $command"

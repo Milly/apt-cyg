@@ -10,6 +10,7 @@ apt-cyg is a command-line installer for Cygwin which cooperates with Cygwin Setu
 * "apt-cyg install <package names>" to install packages
 * "apt-cyg reinstall <package names>" to reinstall packages
 * "apt-cyg remove <package names>" to remove packages
+* "apt-cyg upgrade" to upgrade all packages
 * "apt-cyg mirrors" to show mirrors
 * "apt-cyg update" to update setup.ini
 * "apt-cyg show" to show installed packages
@@ -31,6 +32,9 @@ use apt-cyg, for example:
 
     # apt-cyg update
     # apt-cyg install nano
+    # apt-cyg versions nano
+
+    # apt-cyg --update upgrade
 
 Command completion
 ------------------

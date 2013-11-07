@@ -51,11 +51,12 @@ function _aptcyg_format_strings() {
     '%c[Current state flag]' \
     '%C[Current state]' \
     '%d[Description]' \
+    '%g[Category]' \
     '%l[Long Description]' \
     '%o[Download size]' \
     '%p[Package name]' \
     '%r[Requires]' \
-    '%s[Section (Category)]' \
+    '%s[Release]' \
     '%v[Current version]' \
     '%V[Candidate version]'
 }
