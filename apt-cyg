@@ -19,8 +19,7 @@
 # this script requires some packages
 for cmd in wget bzip2 tar awk # xz
 do
-  if ! which $cmd 1>/dev/null 2>/dev/null
-  then
+  if ! which $cmd 1>/dev/null 2>/dev/null ; then
     echo You must install wget, tar, gawk bzip2 and xz to use apt-cyg.
     exit 1
   fi
@@ -109,8 +108,7 @@ function get_mirrors()
     -e 'inlist && $2 ~ /^(https?|ftp):/ { print $2; lc++ }' \
     -e 'inlist && /<hr>/ { exit }' \
     -e 'END { if (!lc) exit 1 }'
-  if (( $? ))
-  then
+  if (( $? )) ; then
     echo 1>&2 Cannot get mirrors
     exit 1
   fi
@@ -147,22 +145,18 @@ function findworkspace()
 function getsetup()
 {
   local mirror="$mirror_url/$(get_arch)"
-  if (( ! noupdate ))
-  then
+  if (( ! noupdate )) ; then
     [[ -e setup.ini ]] && mv setup.ini setup.ini-save
     wget -N $mirror/setup.bz2
-    if [[ -e setup.bz2 && $? -eq 0 ]]
-    then
+    if [[ -e setup.bz2 && $? -eq 0 ]] ; then
       bunzip2 setup.bz2
       mv setup setup.ini
       echo Updated setup.ini
     else
       wget -N $mirror/setup.ini
-      if [[ -e setup.ini && $? -eq 0 ]]
-      then
+      if [[ -e setup.ini && $? -eq 0 ]] ; then
         echo Updated setup.ini
-      elif [[ -e setup.ini-save ]]
-      then
+      elif [[ -e setup.ini-save ]] ; then
         mv setup.ini-save setup.ini
         echo Error updating setup.ini, reverting
       else
@@ -171,8 +165,7 @@ function getsetup()
       fi
     fi
   fi
-  if [[ ! -e setup.ini ]]
-  then
+  if [[ ! -e setup.ini ]] ; then
     echo -e '\nYou should run `apt-cyg update` first'
     exit 1
   fi
@@ -180,8 +173,7 @@ function getsetup()
 
 function checkpackages()
 {
-  if [[ ${#packages} -eq 0 ]]
-  then
+  if [[ ${#packages} -eq 0 ]] ; then
     echo Nothing to do, exiting
     exit 0
   fi
@@ -194,36 +186,30 @@ function install_packages_with_depends()
   local -A files
 
   installs=( $(get_depend_packages "$@") )
-  if [[ $? -ne 0 ]]
-  then
+  if [[ $? -ne 0 ]] ; then
     echo "The following packages are not found or ambiguous name:"
     echo "  ${installs[*]}"
     return 1
   fi
 
   installs=( $(get_installable_packages "${installs[@]}") )
-  if [[ $command == reinstall ]]
-  then
-    for pkg in "$@"
-    do
+  if [[ $command == reinstall ]] ; then
+    for pkg in "$@" ; do
       [[ " ${installs[*]} " != *" $pkg "* ]] && installs+=( r,$pkg )
     done
   fi
-  if [[ ${#installs[*]} -eq 0 ]]
-  then
+  if [[ ${#installs[*]} -eq 0 ]] ; then
     echo "No packages will be installed, upgraded, or removed."
     return 0
   fi
 
-  for pkg in "${installs[@]}"
-  do
+  for pkg in "${installs[@]}" ; do
     action=${pkg%%,*} pkg=${pkg#*,}
     case $action in
       u) packages_upgrade+=( $pkg );;
       r) packages_reinstall+=( $pkg );;
       *)
-        if [[ " $* " == *" $pkg "* ]]
-        then
+        if [[ " $* " == *" $pkg "* ]] ; then
           packages_newly+=( $pkg )
         else
           packages_auto+=( $pkg )
@@ -236,28 +222,24 @@ function install_packages_with_depends()
 
   echo ""
   echo "Downloading packages"
-  for pkg in "${installs[@]#?,}"
-  do
+  for pkg in "${installs[@]#?,}" ; do
     download_package $pkg || return $?
     files[$pkg]="$downloaded_file"
   done
 
   (( download_only )) && return 0
 
-  for pkg in "${installs[@]}"
-  do
+  for pkg in "${installs[@]}" ; do
     action=${pkg%%,*} pkg=${pkg#*,}
     echo ""
 
-    if [[ $action == u ]]
-    then
+    if [[ $action == u ]] ; then
       echo "Upgrading $pkg"
       remove_package "$pkg" || return $?
     fi
 
     install_package_noscripts $pkg "${files[$pkg]}"
-    if [[ $? -ne 0 ]]
-    then
+    if [[ $? -ne 0 ]] ; then
       echo "Install failed: $pkg"
       return $?
     fi
@@ -274,10 +256,8 @@ function remove_packages()
   local -a installed
 
   installed=( $(get_installed_packages) )
-  for pkg in "$@"
-  do
-    if [[ " ${installed[*]} " != *" $pkg "* ]]
-    then
+  for pkg in "$@" ; do
+    if [[ " ${installed[*]} " != *" $pkg "* ]] ; then
       echo "Package $pkg is not installed, so it will not be removed"
     else
       packages_remove+=( $pkg )
@@ -285,8 +265,7 @@ function remove_packages()
   done
   [[ ${#installed[*]} -ne ${#packages_remove[*]} ]] && echo ""
 
-  if [[ ${#packages_remove[*]} -eq 0 ]]
-  then
+  if [[ ${#packages_remove[*]} -eq 0 ]] ; then
     echo "No packages will be installed, upgraded, or removed."
     return 0
   fi
@@ -294,8 +273,7 @@ function remove_packages()
   show_install_conditions
   select_continue || return 0
 
-  for pkg in "${packages_remove[@]}"
-  do
+  for pkg in "${packages_remove[@]}" ; do
     echo ""
     remove_package $pkg
   done
@@ -307,29 +285,24 @@ function remove_packages()
 function show_install_conditions()
 {
   local msg="${#packages_upgrade[*]} packages upgraded, $((${#packages_auto[*]} + ${#packages_newly[*]})) newly installed"
-  if [[ ${#packages_auto[*]} -ne 0 ]]
-  then
+  if [[ ${#packages_auto[*]} -ne 0 ]] ; then
     echo "The following NEW packages will be automatically installed:"
     echo "  "${packages_auto[*]}
   fi
-  if [[ ${#packages_newly[*]} -ne 0 ]]
-  then
+  if [[ ${#packages_newly[*]} -ne 0 ]] ; then
     echo "The following NEW packages will be installed:"
     echo "  "${packages_newly[*]}
   fi
-  if [[ ${#packages_upgrade[*]} -ne 0 ]]
-  then
+  if [[ ${#packages_upgrade[*]} -ne 0 ]] ; then
     echo "The following packages will be upgraded:"
     echo "  "${packages_upgrade[*]}
   fi
-  if [[ ${#packages_reinstall[*]} -ne 0 ]]
-  then
+  if [[ ${#packages_reinstall[*]} -ne 0 ]] ; then
     echo "The following packages will be REINSTALLED:"
     echo "  "${packages_reinstall[*]}
     msg+=", ${#packages_reinstall[*]} reinstalled"
   fi
-  if [[ ${#packages_remove[*]} -ne 0 ]]
-  then
+  if [[ ${#packages_remove[*]} -ne 0 ]] ; then
     echo "The following packages will be REMOVED:"
     echo "  "${packages_remove[*]}
   fi
@@ -344,8 +317,7 @@ function download_package()
   local -A desc
 
   eval "desc=( $(get_package_desc $pkg) )"
-  if [[ -z "${desc[install_file]}" ]]
-  then
+  if [[ -z "${desc[install_file]}" ]] ; then
     echo "Package $pkg is cannot fetch, install file not provided"
     return 1
   fi
@@ -404,8 +376,7 @@ function run_postinstall_scripts()
   post_scripts=( /etc/postinstall/*.sh )
   [[ "$post_scripts" == "/etc/postinstall/*.sh" ]] && return
   echo "Running postinstall scripts"
-  for script in "${post_scripts[@]}"
-  do
+  for script in "${post_scripts[@]}" ; do
     $script
     mv $script $script.done
   done
@@ -415,13 +386,11 @@ function remove_package()
 {
   local pkg=$1
 
-  if [[ " ${packages_essential[*]} " == *" $pkg "* ]]
-  then
+  if [[ " ${packages_essential[*]} " == *" $pkg "* ]] ; then
     echo "Package $pkg is cannot remove, apt-cyg depends on it"
     exit 1
   fi
-  if [[ ! -e "/etc/setup/$pkg.lst.gz" ]]
-  then
+  if [[ ! -e "/etc/setup/$pkg.lst.gz" ]] ; then
     echo "Package $pkg is cannot remove, missing manifest file"
     exit 1
   fi
@@ -429,8 +398,7 @@ function remove_package()
   echo "Removing $pkg"
 
   # run preremove scripts
-  if [[ -e "/etc/preremove/$pkg.sh" ]]
-  then
+  if [[ -e "/etc/preremove/$pkg.sh" ]] ; then
     "/etc/preremove/$pkg.sh"
     rm "/etc/preremove/$pkg.sh"
   fi
@@ -617,16 +585,17 @@ function get_installable_packages()
 function find_package_files()
 {
   local pkg query
-  for pkg in "$@"
-  do
+  for pkg in "$@" ; do
     query="${query}|($(which "$pkg" 2>/dev/null || echo "$pkg"))"
   done
   query="${query#|}"
   (
     cd /etc/setup
-    for manifest in *.lst.gz
-    do
-      gzip -dc "$manifest" | awk -v IGNORECASE=${nocase#0} -v query="$query" -v package="${manifest%.lst.gz}" \
+    for manifest in *.lst.gz ; do
+      gzip -dc "$manifest" | awk \
+        -v IGNORECASE=${nocase#0} \
+        -v query="$query" \
+        -v package="${manifest%.lst.gz}" \
         'BEGIN{RS="\n"} ("/"$0 ~ query){printf("%s: %s\n", package, "/"$0)}'
     done
   )
@@ -635,8 +604,7 @@ function find_package_files()
 function select_continue()
 {
   local res
-  for ((;;))
-  do
+  for ((;;)) ; do
     read -p "Do you want to continue? [Y/n] " res
     case "${res:-y}" in
       [Yy]) return 0;;
@@ -920,8 +888,7 @@ function aptcyg_help()
 
 function process_args()
 {
-  while (( $# ))
-  do
+  while (( $# )) ; do
     case "$1" in
 
       --mirror|-M)
@@ -955,8 +922,7 @@ function process_args()
       ;;
 
       --file|-f)
-        if [[ -n "$2" ]]
-        then
+        if [[ -n "$2" ]] ; then
           files=( "${files[@]}" "$2" )
           shift
         else
@@ -991,8 +957,7 @@ function process_args()
       ;;
 
       *)
-        if [[ -z "$command" ]]
-        then
+        if [[ -z "$command" ]] ; then
           command=$1
         else
           packages=( "${packages[@]}" "$1" )
@@ -1018,12 +983,9 @@ function run()
 
   process_args "$@"
 
-  if [[ ${#files} -ne 0 ]]
-  then
-    for file in "${files[@]}"
-    do
-      if [[ "$file" == - ||  -f "$file" ]]
-      then
+  if [[ ${#files} -ne 0 ]] ; then
+    for file in "${files[@]}" ; do
+      if [[ "$file" == - ||  -f "$file" ]] ; then
         packages=( "${packages[@]}" $(cat -- "$file") )
       else
         echo 1>&2 File $file not found, skipping
@@ -1032,7 +994,7 @@ function run()
   fi
 
   local call_command=aptcyg_${command:=help}
-  if [[ $(type $call_command) == "$call_command is a function"* ]] 2>/dev/null; then
+  if [[ $(type $call_command) == "$call_command is a function"* ]] 2>/dev/null ; then
     init_awk_scripts
     $call_command
   else
