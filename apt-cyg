@@ -29,7 +29,6 @@ unset cmd
 packages_essential=( cygwin coreutils gawk bzip2 xz tar wget bash )
 
 # options
-noscripts=0
 noupdate=1
 files=()
 nocase=0
@@ -110,7 +109,7 @@ function get_mirrors()
     -e 'inlist && $2 ~ /^(https?|ftp):/ { print $2; lc++ }' \
     -e 'inlist && /<hr>/ { exit }' \
     -e 'END { if (!lc) exit 1 }'
-  if test $? -ne 0
+  if (( $? ))
   then
     echo 1>&2 Cannot get mirrors
     exit 1
@@ -148,21 +147,21 @@ function findworkspace()
 function getsetup()
 {
   local mirror="$mirror_url/$(get_arch)"
-  if test "$noscripts" == "0" -a "$noupdate" == "0"
+  if (( ! noupdate ))
   then
-    test -e setup.ini && mv setup.ini setup.ini-save
+    [[ -e setup.ini ]] && mv setup.ini setup.ini-save
     wget -N $mirror/setup.bz2
-    if test -e setup.bz2 && test $? -eq 0
+    if [[ -e setup.bz2 && $? -eq 0 ]]
     then
       bunzip2 setup.bz2
       mv setup setup.ini
       echo Updated setup.ini
     else
       wget -N $mirror/setup.ini
-      if test -e setup.ini && test $? -eq 0
+      if [[ -e setup.ini && $? -eq 0 ]]
       then
         echo Updated setup.ini
-      elif test -e setup.ini-save
+      elif [[ -e setup.ini-save ]]
       then
         mv setup.ini-save setup.ini
         echo Error updating setup.ini, reverting
@@ -171,7 +170,8 @@ function getsetup()
         exit 1
       fi
     fi
-  elif test ! -e setup.ini
+  fi
+  if [[ ! -e setup.ini ]]
   then
     echo -e '\nYou should run `apt-cyg update` first'
     exit 1
@@ -920,7 +920,7 @@ function aptcyg_help()
 
 function process_args()
 {
-  while test $# -gt 0
+  while (( $# ))
   do
     case "$1" in
 
@@ -932,11 +932,6 @@ function process_args()
       --cache|-c)
         cygpath -aw "$2" > "$config_cache"
         shift ; shift
-      ;;
-
-      --noscripts)
-        noscripts=1
-        shift
       ;;
 
       --noupdate)
@@ -960,7 +955,7 @@ function process_args()
       ;;
 
       --file|-f)
-        if ! test "-$2-" = "--"
+        if [[ -n "$2" ]]
         then
           files=( "${files[@]}" "$2" )
           shift
@@ -996,7 +991,7 @@ function process_args()
       ;;
 
       *)
-        if test "-$command-" = "--"
+        if [[ -z "$command" ]]
         then
           command=$1
         else
