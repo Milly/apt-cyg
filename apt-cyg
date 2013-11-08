@@ -43,6 +43,9 @@ packages_newly=()
 packages_upgrade=()
 packages_reinstall=()
 packages_remove=()
+config_cache=/etc/setup/last-cache
+config_mirror=/etc/setup/last-mirror
+mirror_url=
 
 # functions
 
@@ -116,35 +119,35 @@ function get_mirrors()
 
 function findworkspace()
 {
+  local cache mirror_dir
+
   # default working directory and mirror
 
-  mirror="http://mirrors.kernel.org/sourceware/cygwin/"
+  mirror_url="http://mirrors.kernel.org/sourceware/cygwin/"
   cache="/var/cache/apt-cyg"
 
   # work wherever setup worked last, if possible
 
-  if test -e /etc/setup/last-cache
-  then
-    tmp="`head -1 /etc/setup/last-cache`"
-    cache="`cygpath -au "$tmp"`"
-  fi
+  [[ -e "$config_cache" ]] && \
+    cache="$(cygpath -au -f "$config_cache" | head -1)"
 
-  if test -e /etc/setup/last-mirror
-  then
-    mirror="`head -1 /etc/setup/last-mirror`"
-  fi
-  mirrordir="`echo "$mirror" | sed -e "s/:/%3a/g" -e "s:/:%2f:g"`"
-  mirrordir="$mirrordir/$(get_arch)"
+  [[ -e "$config_mirror" ]] && \
+    mirror_url="$(head -1 "$config_mirror")"
+  mirror_url="${mirror_url%/}"
 
-  echo Working directory is $cache
-  echo Mirror is $mirror
-  mkdir -p "$cache/$mirrordir"
-  cd "$cache/$mirrordir"
+  mirror_dir="${mirror_url//:/%3a}/"
+  mirror_dir="${mirror_dir//\//%2f}"
+  mirror_dir="$mirror_dir/$(get_arch)"
+
+  echo "Working directory is $cache"
+  echo "Mirror is $mirror_url"
+  mkdir -p "$cache/$mirror_dir"
+  cd "$cache/$mirror_dir"
 }
 
 function getsetup()
 {
-  local mirror="$mirror/$(get_arch)"
+  local mirror="$mirror_url/$(get_arch)"
   if test "$noscripts" == "0" -a "$noupdate" == "0"
   then
     test -e setup.ini && mv setup.ini setup.ini-save
@@ -358,7 +361,7 @@ function download_package()
     rm -f "$file"
   fi
 
-  wget -nc -O "$file" "${mirror%/}/${desc[install_path]}"
+  wget -nc -O "$file" "$mirror_url/${desc[install_path]}"
   if ! check_digest "$file" "${desc[install_digest]}"
   then
     echo "MD5 sum did not match: $file"
@@ -922,12 +925,12 @@ function process_args()
     case "$1" in
 
       --mirror|-M)
-        echo "$2" > /etc/setup/last-mirror
+        echo "$2" > "$config_mirror"
         shift ; shift
       ;;
 
       --cache|-c)
-        cygpath -aw "$2" > /etc/setup/last-cache
+        cygpath -aw "$2" > "$config_cache"
         shift ; shift
       ;;
 
