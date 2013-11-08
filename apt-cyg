@@ -794,92 +794,6 @@ _END_awk_format_description_
 typeset -r awk_format_description
 }
 
-function process_args()
-{
-  while test $# -gt 0
-  do
-    case "$1" in
-
-      --mirror|-m)
-        echo "$2" > /etc/setup/last-mirror
-        shift ; shift
-      ;;
-
-      --cache|-c)
-        cygpath -aw "$2" > /etc/setup/last-cache
-        shift ; shift
-      ;;
-
-      --noscripts)
-        noscripts=1
-        shift
-      ;;
-
-      --noupdate)
-        noupdate=1
-        shift
-      ;;
-
-      --update|-u)
-        noupdate=0
-        shift
-      ;;
-
-      --help)
-        usage
-        exit 0
-      ;;
-
-      --version)
-        version
-        exit 0
-      ;;
-
-      --file|-f)
-        if ! test "-$2-" = "--"
-        then
-          files=( "${files[@]}" "$2" )
-          shift
-        else
-          echo 1>&2 No file name provided, ignoring $1
-        fi
-        shift
-      ;;
-
-      --ignore-case|-i)
-        nocase=1
-        shift
-      ;;
-
-      --no-ignore-case|-no-i)
-        nocase=0
-        shift
-      ;;
-
-      --match-desc|-d)
-        match_desc=1
-        shift
-      ;;
-
-      --display-format|-F)
-        display_format="$2"
-        shift ; shift
-      ;;
-
-      *)
-        if test "-$command-" = "--"
-        then
-          command=$1
-        else
-          packages=( "${packages[@]}" "$1" )
-        fi
-        shift
-      ;;
-
-    esac
-  done
-}
-
 # command methods
 
 function aptcyg_mirrors()
@@ -987,36 +901,128 @@ function aptcyg_help()
   usage
 }
 
+# main
 
-# Check to see if global options are defined
-if [[ ! -z "$APTCYG_OPTIONS" ]] ; then
-  # If we only have one element, assume it's a string to split
-  #  and parse as an array
-  if [[ "${#APTCYG_OPTIONS[*]}" -eq "1" ]] ; then
-    APTCYG_OPTIONS=($APTCYG_OPTIONS)
-  fi
-  process_args "${APTCYG_OPTIONS[@]}"
-fi
-
-process_args "$@"
-
-if [[ ${#files} -ne 0 ]]
-then
-  for file in "${files[@]}"
+function process_args()
+{
+  while test $# -gt 0
   do
-    if [[ "$file" == - ||  -f "$file" ]]
-    then
-      packages=( "${packages[@]}" $(cat -- "$file") )
-    else
-      echo 1>&2 File $file not found, skipping
-    fi
-  done
-fi
+    case "$1" in
 
-call_command=aptcyg_${command:=help}
-if [[ $(type $call_command) == "$call_command is a function"* ]] 2>/dev/null; then
-  init_awk_scripts
-  $call_command
-else
-  echo "invalid command: $command"
-fi
+      --mirror|-m)
+        echo "$2" > /etc/setup/last-mirror
+        shift ; shift
+      ;;
+
+      --cache|-c)
+        cygpath -aw "$2" > /etc/setup/last-cache
+        shift ; shift
+      ;;
+
+      --noscripts)
+        noscripts=1
+        shift
+      ;;
+
+      --noupdate)
+        noupdate=1
+        shift
+      ;;
+
+      --update|-u)
+        noupdate=0
+        shift
+      ;;
+
+      --help)
+        usage
+        exit 0
+      ;;
+
+      --version)
+        version
+        exit 0
+      ;;
+
+      --file|-f)
+        if ! test "-$2-" = "--"
+        then
+          files=( "${files[@]}" "$2" )
+          shift
+        else
+          echo 1>&2 No file name provided, ignoring $1
+        fi
+        shift
+      ;;
+
+      --ignore-case|-i)
+        nocase=1
+        shift
+      ;;
+
+      --no-ignore-case|-no-i)
+        nocase=0
+        shift
+      ;;
+
+      --match-desc|-d)
+        match_desc=1
+        shift
+      ;;
+
+      --display-format|-F)
+        display_format="$2"
+        shift ; shift
+      ;;
+
+      *)
+        if test "-$command-" = "--"
+        then
+          command=$1
+        else
+          packages=( "${packages[@]}" "$1" )
+        fi
+        shift
+      ;;
+
+    esac
+  done
+}
+
+function run()
+{
+  # Check to see if global options are defined
+  if [[ ! -z "$APTCYG_OPTIONS" ]] ; then
+    # If we only have one element, assume it's a string to split
+    #  and parse as an array
+    if [[ "${#APTCYG_OPTIONS[*]}" -eq "1" ]] ; then
+      APTCYG_OPTIONS=($APTCYG_OPTIONS)
+    fi
+    process_args "${APTCYG_OPTIONS[@]}"
+  fi
+
+  process_args "$@"
+
+  if [[ ${#files} -ne 0 ]]
+  then
+    for file in "${files[@]}"
+    do
+      if [[ "$file" == - ||  -f "$file" ]]
+      then
+        packages=( "${packages[@]}" $(cat -- "$file") )
+      else
+        echo 1>&2 File $file not found, skipping
+      fi
+    done
+  fi
+
+  local call_command=aptcyg_${command:=help}
+  if [[ $(type $call_command) == "$call_command is a function"* ]] 2>/dev/null; then
+    init_awk_scripts
+    $call_command
+  else
+    echo "invalid command: $command"
+  fi
+}
+
+run "$@"
