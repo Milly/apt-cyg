@@ -54,8 +54,8 @@ function usage()
   echo "  apt-cyg upgrade                       : upgrade all packages"
   echo "  apt-cyg mirrors                       : show mirrors"
   echo "  apt-cyg update                        : update setup.ini"
-  echo "  apt-cyg show                          : show installed packages"
-  echo "  apt-cyg versions                      : show installed packages versions"
+  echo "  apt-cyg show [<patterns>]             : show installed packages"
+  echo "  apt-cyg versions [<patterns>]         : show installed packages versions"
   echo "  apt-cyg find <patterns>               : find packages matching patterns"
   echo "  apt-cyg search <patterns>             : (alias of find)"
   echo "  apt-cyg describe <patterns>           : describe packages matching patterns"
@@ -456,14 +456,16 @@ function get_installed_versions()
 function get_avail_packages()
 {
   local query
-  IFS=$'\n' query="$*"; query="(${query//$'\n'/$')|('})"
-  awk \
+  IFS=$'\n' query="$*"
+  [[ -n "$query" ]] && query="(${query//$'\n'/$')|('})"
+  cat setup.ini 2>/dev/null | awk \
     -v IGNORECASE=${nocase#0} \
     -v query="$query" \
     -v match_desc="$match_desc" \
-    -v display_format="${display_format:-"%1?p"}\n" \
+    -v display_format="${display_format:-"%p#"}\n" \
     -v installed="$(get_installed_versions)" \
     -v show_other_vers="${show_other_vers:-0}" \
+    -v only_installed="${only_installed:-0}" \
     -e "
       $awk_util_functions
       $awk_parse_description
@@ -472,18 +474,30 @@ function get_avail_packages()
       BEGIN {
         search_field = match_desc ? 0 : 1;
       }
-      /^[^#]/ && ($search_field ~ query) {
-        vers = parsedesc($0, desc);
-        if (!show_other_vers) vers = 1;
-        for (i = 1; i <= vers; ++i) {
-          if (!match_desc || $1 ~ query ||
-              desc[i]["sdesc"] ~ query || desc[i]["ldesc"] ~ query) {
-            printf("%s", format(desc[i]));
+      /^[^#]/ {
+        avails[$1] = 1;
+        if ($search_field ~ query &&
+            (!only_installed || versions[$1] != "")) {
+          vers = parsedesc($0, desc);
+          if (!show_other_vers) vers = 1;
+          for (i = 1; i <= vers; ++i) {
+            if (!match_desc || $1 ~ query ||
+                desc[i]["sdesc"] ~ query || desc[i]["ldesc"] ~ query) {
+              printf("%s", format(desc[i]));
+            }
           }
         }
       }
-    ' \
-    setup.ini
+      END {
+        for (pkg in versions) {
+          if (versions[pkg] != "" && avails[pkg] == "" && pkg ~ query) {
+            delete nodata;
+            nodata["package"] = pkg;
+            printf("%s", format(nodata))
+          }
+        }
+      }
+    '
 }
 
 function get_depend_packages()
@@ -740,9 +754,9 @@ read -r -d $'\0' awk_format_description <<'_END_awk_format_description_'
     res["o"] = splitget(desc["install"], 2);
     res["p"] = desc["package"];
     res["r"] = desc["requires"];
-    res["s"] = desc["release"];
-    res["v"] = (v == "") ? "<none>" : v;
-    res["V"] = desc["version"];
+    res["s"] = none_or(desc["release"]);
+    res["v"] = none_or(v);
+    res["V"] = none_or(desc["version"]);
     if (mode == "install") {
       if (v == "") {
         res["a"] = "i";
@@ -755,6 +769,10 @@ read -r -d $'\0' awk_format_description <<'_END_awk_format_description_'
       res["a"] = "p";
       res["A"] = "purge";
     }
+  }
+
+  function none_or(val) {
+    return (val == "") ? "<none>" : val;
   }
 
   function format(desc    ,res,ary,i,j,len,val,param,m) {
@@ -810,26 +828,16 @@ function aptcyg_update()
 
 function aptcyg_show()
 {
+  findworkspace >/dev/null
   echo 1>&2 The following packages are installed:
-  get_installed_packages
+  only_installed=1 \
+    get_avail_packages "${packages[@]}"
 }
 
 function aptcyg_versions()
 {
-  echo 1>&2 The following packages are installed:
-  get_installed_versions | awk -F= \
-    '{
-       len = length($1);
-       mlen = (mlen < len) ? len : mlen
-       rows[line][0] = $1;
-       rows[line][1] = $2;
-       line++;
-     }
-     END {
-       for ( i = 0; i < line; ++i ) {
-         printf "%-*s  =%s\n", mlen, rows[i][0], rows[i][1];
-       }
-     }'
+  display_format="${display_format:-"%p# =%v#"}" \
+    aptcyg_show
 }
 
 function aptcyg_find()

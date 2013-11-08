@@ -91,7 +91,7 @@ case $state in
       remove)
         _cygwin_packages installed && ret=0
       ;;
-      find|search|describe|info)
+      show|versions|find|search|describe|info)
         _message -e patterns pattern
       ;;
       packageof)
