@@ -64,14 +64,15 @@ function _aptcyg_format_strings() {
 _arguments -C \
   '(- 1 *)--help[display help information]' \
   '(- 1 *)--version[display version information]' \
-  '(-m --mirror)'{-m,--mirror}'[set mirror]:mirror url:_cygwin_mirrors' \
+  '(-M --mirror)'{-M,--mirror}'[set mirror]:mirror url:_cygwin_mirrors' \
   '(-c --cache)'{-c,--cache}'[set cache]:cache dir:_dirs' \
   '(-f --file)'{-f,--file}'[read package names from file]:files:_files' \
   '(-u --update --noupdate)'{-u,--update}'[force update setup.ini from mirror]' \
   "(-u --update)--noupdate[don't update setup.ini from mirror (default)]" \
-  '(-i --ignore-case)'{-i,--ignore-case}'[ignore case distinctions in <patterns> when finding packages]' \
-  '(-d --match-desc)'{-d,--match-desc}'[<patterns> match the package description]' \
+  '(-i --ignore-case)'{-i,--ignore-case}'[ignore case distinctions in <patterns>]' \
+  '(-m --match-desc)'{-m,--match-desc}'[<patterns> match the package description]' \
   '(-F --display-format)'{-F,--display-format}'[specify output format for find command]:format:_aptcyg_format_strings' \
+  '(-d --download-only)'{-d,--download-only}'[only download, not install or remove]' \
   '1: :->cmds' \
   '*: :->args' && ret=0
 

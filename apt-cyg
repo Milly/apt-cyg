@@ -35,6 +35,7 @@ files=()
 nocase=0
 match_desc=0
 display_format=
+download_only=0
 command=""
 packages=()
 packages_auto=()
@@ -62,15 +63,16 @@ function usage()
   echo "  apt-cyg info <patterns>               : (alias of describe)"
   echo "  apt-cyg packageof <commands or files> : locate parent packages"
   echo "Options:"
-  echo "  --mirror, -m <url> : set mirror"
-  echo "  --cache, -c <dir>  : set cache"
-  echo "  --file, -f <file>  : read package names from file"
-  echo "  --update, -u       : force update setup.ini from mirror"
-  echo "  --noupdate         : don't update setup.ini from mirror (default)"
-  echo "  --ignore-case, -i  : ignore case distinctions in <patterns> when finding packages"
-  echo "  --match-desc, -m   : <patterns> match the package description"
+  echo "  --mirror, -M <url>   : set mirror"
+  echo "  --cache, -c <dir>    : set cache"
+  echo "  --file, -f <file>    : read package names from file"
+  echo "  --update, -u         : force update setup.ini from mirror"
+  echo "  --noupdate           : don't update setup.ini from mirror (default)"
+  echo "  --ignore-case, -i    : ignore case distinctions in <patterns>"
+  echo "  --match-desc, -m     : <patterns> match the package description"
   echo "  --display-format, -F <format>"
-  echo "                     : specify output format for find command"
+  echo "                       : specify output format for find command"
+  echo "  --download-only, -d  : only download, not install or remove"
   echo "  --help"
   echo "  --version"
 }
@@ -236,6 +238,8 @@ function install_packages_with_depends()
     download_package $pkg || return $?
     files[$pkg]="$downloaded_file"
   done
+
+  (( download_only )) && return 0
 
   for pkg in "${installs[@]}"
   do
@@ -917,7 +921,7 @@ function process_args()
   do
     case "$1" in
 
-      --mirror|-m)
+      --mirror|-M)
         echo "$2" > /etc/setup/last-mirror
         shift ; shift
       ;;
@@ -973,7 +977,7 @@ function process_args()
         shift
       ;;
 
-      --match-desc|-d)
+      --match-desc|-m)
         match_desc=1
         shift
       ;;
@@ -981,6 +985,11 @@ function process_args()
       --display-format|-F)
         display_format="$2"
         shift ; shift
+      ;;
+
+      --download-only|-d)
+        download_only=1
+        shift
       ;;
 
       *)
