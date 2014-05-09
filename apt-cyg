@@ -182,20 +182,28 @@ function checkpackages()
 function install_packages_with_depends()
 {
   local action pkg downloaded_file
-  local -a installs
+  local -a installs depends losts
   local -A files
 
-  installs=( $(get_depend_packages "$@") )
+  depends=( $(get_depend_packages "$@") )
   if [[ $? -ne 0 ]] ; then
+    for pkg in "${depends[@]}"; do
+      if [[ $pkg == l,* ]]; then
+        losts+=( ${pkg#l,} )
+      else
+        installs+=( $pkg )
+      fi
+    done
+    depends=( "${installs[@]}" )
+
     echo "The following packages are not found or ambiguous name:"
-    echo "  ${installs[*]}"
-    return 1
+    echo "  ${losts[*]}"
   fi
 
-  installs=( $(get_installable_packages "${installs[@]}") )
+  installs=( $(get_installable_packages "${depends[@]}") )
   if [[ $command == reinstall ]] ; then
     for pkg in "$@" ; do
-      [[ " ${installs[*]} " != *" $pkg "* ]] && installs+=( r,$pkg )
+      [[ " ${installs[*]} ${losts[*]} " != *" $pkg "* ]] && installs+=( r,$pkg )
     done
   fi
   if [[ ${#installs[*]} -eq 0 ]] ; then
@@ -498,12 +506,12 @@ function get_depend_packages()
         find_deps(pkgs);
         for (pkg in losts) {
           has_losts = 1;
-          print pkg;
+          print "l," pkg;
         }
-        if (has_losts)
-          exit 1;
         for (i in ordered_deps)
           print ordered_deps[i];
+        if (has_losts)
+          exit 1;
       }
 
       function find_deps(pkgs,  idx, pkg) {
