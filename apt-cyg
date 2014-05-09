@@ -203,6 +203,7 @@ function install_packages_with_depends()
   installs=( $(get_installable_packages "${depends[@]}") )
   if [[ $command == reinstall ]] ; then
     for pkg in "$@" ; do
+      pkg=${pkg#*,}
       [[ " ${installs[*]} ${losts[*]} " != *" $pkg "* ]] && installs+=( r,$pkg )
     done
   fi
