@@ -524,10 +524,6 @@ function get_depend_packages()
       END {
         split(packages, pkgs, "\n");
         find_deps(pkgs);
-        for (pkg in losts) {
-          has_losts = 1;
-          print "l," pkg;
-        }
         for (i in ordered_deps)
           print ordered_deps[i];
         if (has_losts)
@@ -540,7 +536,8 @@ function get_depend_packages()
           if (!all_deps[pkg]) {
             all_deps[pkg] = 1;
             if (!(pkg in avails)) {
-              losts[pkg] = 1;
+              has_losts = 1;
+              pkg = "l," pkg;
             } else if (pkg in depends) {
               idx = find_deps(depends[pkg], idx);
             }
