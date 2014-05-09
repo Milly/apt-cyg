@@ -20,7 +20,7 @@
 for cmd in wget bzip2 tar awk # xz
 do
   if ! which $cmd 1>/dev/null 2>/dev/null ; then
-    echo You must install wget, tar, gawk bzip2 and xz to use apt-cyg.
+    echo You must install wget, tar, gawk, bzip2 and xz to use apt-cyg.
     exit 1
   fi
 done
