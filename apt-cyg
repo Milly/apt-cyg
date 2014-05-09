@@ -182,7 +182,7 @@ function checkpackages()
 function install_packages_with_depends()
 {
   local action pkg downloaded_file
-  local -a installs depends losts
+  local -a installs depends losts essentials tmplist
   local -A files
 
   depends=( $(get_depend_packages "$@") )
@@ -201,12 +201,31 @@ function install_packages_with_depends()
   fi
 
   installs=( $(get_installable_packages "${depends[@]}") )
+
+  # add force reinstall packages
   if [[ $command == reinstall ]] ; then
     for pkg in "$@" ; do
       pkg=${pkg#*,}
       [[ " ${installs[*]} ${losts[*]} " != *" $pkg "* ]] && installs+=( r,$pkg )
     done
   fi
+
+  # check essential packages
+  tmplist=( "${installs[@]}" )
+  installs=()
+  for pkg in "${tmplist[@]}" ; do
+    if [[ " ${packages_essential[*]} " == *" ${pkg#*,} "* ]]; then
+      essentials+=( ${pkg#*,} )
+    else
+      installs+=( $pkg )
+    fi
+  done
+  if [[ ${#essentials[*]} -ne 0 ]] ; then
+    echo "The following packages are cannot upgrade, apt-cyg depends on it:"
+    echo "  ${essentials[*]}"
+  fi
+
+  # check install target exists
   if [[ ${#installs[*]} -eq 0 ]] ; then
     echo "No packages will be installed, upgraded, or removed."
     return 0
