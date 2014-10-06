@@ -41,6 +41,7 @@ packages_newly=()
 packages_upgrade=()
 packages_reinstall=()
 packages_remove=()
+packages_essential_depends=()
 config_cache=/etc/setup/last-cache
 config_mirror=/etc/setup/last-mirror
 mirror_url=
@@ -211,10 +212,11 @@ function install_packages_with_depends()
   fi
 
   # check essential packages
+  get_essential_packages_depends
   tmplist=( "${installs[@]}" )
   installs=()
   for pkg in "${tmplist[@]}" ; do
-    if [[ " ${packages_essential[*]} " == *" ${pkg#*,} "* ]]; then
+    if [[ " ${packages_essential_depends[*]} " == *" ${pkg#*,} "* ]]; then
       essentials+=( ${pkg#*,} )
     else
       installs+=( $pkg )
@@ -413,8 +415,9 @@ function run_postinstall_scripts()
 function remove_package()
 {
   local pkg=$1
+  get_essential_packages_depends
 
-  if [[ " ${packages_essential[*]} " == *" $pkg "* ]] ; then
+  if [[ " ${packages_essential_depends[*]} " == *" $pkg "* ]] ; then
     echo "Package $pkg is cannot remove, apt-cyg depends on it"
     exit 1
   fi
@@ -605,6 +608,15 @@ function get_installable_packages()
       }
     ' \
     setup.ini
+}
+
+function get_essential_packages_depends()
+{
+  local pkg
+  [[ ${#packages_essential_depends} == 0 ]] || return
+  for pkg in $(get_depend_packages "${packages_essential[@]}"); do
+    [[ $pkg != _* ]] && packages_essential_depends+=( $pkg )
+  done
 }
 
 function find_package_files()
