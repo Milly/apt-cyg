@@ -454,7 +454,7 @@ function get_installed_versions()
 {
   # package-name package-name-1.2.3a4-5.tar.bz2 0
   awk '/[^ ]+ [^ ]+ 0/ {
-         version = gensub("\\.tar\\.\\w+$", "", "", substr($2, length($1)+2));
+         version = gensub("\\.tar\\.\\w+$", "", 1, substr($2, length($1)+2));
          print $1 "=" version;
        }' /etc/setup/installed.db
 }
@@ -659,7 +659,7 @@ read -r -d $'\0' awk_util_functions <<'_END_awk_util_functions_'
   }
 
   function delquote(str) {
-    return gensub("^\"(.*)\"$", "\\1", "", str);
+    return gensub("^\"(.*)\"$", "\\1", 1, str);
   }
 
   function splitget(str, idx, sep    ,ary) {
@@ -722,7 +722,7 @@ read -r -d $'\0' awk_parse_description <<'_END_awk_parse_description_'
       if ( n == "install" || n == "source" ) {
         split(ary[i+1], ary2, " ");
         res[n "_path"] = ary2[1];
-        res[n "_file"] = gensub(".*/", "", "", ary2[1]);
+        res[n "_file"] = gensub(".*/", "", 1, ary2[1]);
         res[n "_size"] = ary2[2];
         res[n "_digest"] = ary2[3];
       }
@@ -796,7 +796,7 @@ read -r -d $'\0' awk_format_description <<'_END_awk_format_description_'
         res = res "%" ary[++i];
       } else {
         param = gensub("^([0-9]*)(\\??)([a-zA-Z])(#?).*",
-                       "\\1,\\2,\\3,\\4", "", ary[i]);
+                       "\\1,\\2,\\3,\\4", 1, ary[i]);
         if (param != ary[i]) {
           split(param, m, ",");
           len = (m[1] == "") ? flen[m[3]] : int(m[1]);
