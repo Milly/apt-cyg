@@ -366,7 +366,7 @@ function download_package()
   wget -nc -O "$file" "$mirror_url/${desc[install_path]}"
   if ! check_digest "$file" "${desc[install_digest]}"
   then
-    echo "MD5 sum did not match: $file"
+    echo "Digest did not match: $file"
     return 1
   fi
 }
@@ -375,7 +375,7 @@ function check_digest()
 {
   local file="$1" digest="$2"
   [[ -f "$file" ]] || return 2
-  [[ "$(md5sum "$file")" == "$digest "* ]]
+  [[ "$(sha512sum "$file")" == "$digest "* ]]
 }
 
 function install_package_noscripts()
