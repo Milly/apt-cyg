@@ -1031,7 +1031,7 @@ function run()
   fi
 
   local call_command=aptcyg_${command:=help}
-  if [[ $(type $call_command) == "$call_command is a function"* ]] 2>/dev/null ; then
+  if [[ $(LANG=C type $call_command) == "$call_command is a function"* ]] 2>/dev/null ; then
     init_awk_scripts
     $call_command
   else
